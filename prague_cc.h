@@ -72,13 +72,13 @@ class PragueCC: private PragueState {
     public:
 
         PragueCC(
+            fps_tp fps = 0,                   // only used for video; frames per second, 0 must be used for bulk transfer
+            time_tp frame_budget = 0,         // only used for video; over what time [µs] you want to pace the frame (max 1000000/fps [µs])
             rate_tp init_rate = 12500,        // 12500 Byte/s (equiv. 100kbps)
             count_tp init_window = 10,        // 10 packets
             rate_tp min_rate = 12500,         // 12500 Byte/s (equiv. 100kbps)
             rate_tp max_rate = 12500000000,   // 12500000000 Byte/s (equiv. 100Gbps)
-            size_tp max_packet_size = 1400,   // use MTU detection, or a low enough value. Can be updated on the fly
-            fps_tp fps = 0,                   // only used for video; frames per second, 0 must be used for bulk transfer
-            time_tp frame_budget = 0)         // only used for video; over what time [µs] you want to pace the frame (max 1000000/fps [µs])
+            size_tp max_packet_size = 1400)   // use MTU detection, or a low enough value. Can be updated on the fly
         {
             time_tp ts_now = Now();
         // parameters
