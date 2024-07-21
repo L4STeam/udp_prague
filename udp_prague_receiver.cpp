@@ -7,16 +7,16 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <ws2ipdef.h>
-#endif // WINDOWS
-#ifdef LINUX
+#elif __linux__
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <arpa/inet.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/ip.h>
-#endif // LINUX
+#endif
 
 #include "prague_cc.h"
 
@@ -61,14 +61,13 @@ struct ackmessage_t {
 WSADATA wsaData;
 typedef int socklen_t;
 typedef int ssize_t;
-#define SIN_ADDR sin_addr.S_un
-#endif
-#ifdef LINUX
+#define SIN_ADDR sin_addr.S_un.S_addr
+#elif __linux__
 typedef int SOCKET;
 typedef struct sockaddr_in SOCKADDR_IN;
 typedef struct sockaddr SOCKADDR;
-#define SIN_ADDR sin_addr
-#endif // LINUX
+#define SIN_ADDR sin_addr.s_addr
+#endif
 
 void initsocks()
 {
@@ -113,14 +112,19 @@ int main()
     SOCKADDR_IN server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
-    server_addr.SIN_ADDR.S_addr = INADDR_ANY;
+    server_addr.SIN_ADDR = INADDR_ANY;
     server_addr.sin_port = htons(PORT);
 
     // Bind the socket to the server address
     if (int(bind(sockfd, (SOCKADDR *)&server_addr, sizeof(server_addr))) < 0) {
         printf("Bind failed.\n");
+#ifdef WIN32
         closesocket(sockfd);
+	cleanupsocks();
+#elif __linux__
+	close(sockfd);
         cleanupsocks();
+#endif
         exit(1);
     }
 

@@ -7,8 +7,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <ws2ipdef.h>
-#endif // WINDOWS
-#ifdef LINUX
+#elif __linux__
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,7 +15,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/ip.h>
-#endif // LINUX
+#endif
 
 #include "prague_cc.h"
 
@@ -62,14 +61,13 @@ struct ackmessage_t {
 WSADATA wsaData;
 typedef int socklen_t;
 typedef int ssize_t;
-#define SIN_ADDR sin_addr.S_un
-#endif
-#ifdef LINUX
+#define SIN_ADDR sin_addr.S_un.S_addr
+#elif __linux__
 typedef int SOCKET;
 typedef struct sockaddr_in SOCKADDR_IN;
 typedef struct sockaddr SOCKADDR;
-#define SIN_ADDR sin_addr
-#endif // LINUX
+#define SIN_ADDR sin_addr.s_addr
+#endif
 
 void initsocks()
 {
@@ -114,7 +112,7 @@ int main()
     SOCKADDR_IN server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
-    server_addr.SIN_ADDR.S_addr = htonl(SERVER_IP);
+    server_addr.SIN_ADDR = htonl(SERVER_IP);
     server_addr.sin_port = htons(SERVER_PORT);
 
 /*    // Bind the socket to the server address
@@ -147,7 +145,7 @@ int main()
     pragueCC.GetCCInfo(pacing_rate, packet_window, packet_burst, packet_size);
     while (true) {
         count_tp inburst = 0;
-        time_tp timeout = 0;
+	time_tp timeout = 0;
         time_tp startSend = 0;
         time_tp now = pragueCC.Now();
         while ((inflight < packet_window) && (inburst < packet_burst) && (nextSend <= now)) {
@@ -158,7 +156,7 @@ int main()
             data_msg.seq_nr = seqnr;
             data_msg.hton();  // swap byte order if needed
             ssize_t bytes_sent = sendtoecn(sockfd, (char*)(&data_msg), packet_size, new_ecn, (SOCKADDR *)&server_addr, sizeof(server_addr));
-            if (bytes_sent != packet_size) {
+            if (bytes_sent < 0 || ((size_tp) bytes_sent) != packet_size) {
                 perror("invalid data packet length sent");
                 exit(1);
             }
