@@ -22,7 +22,7 @@
 
 
 #define PORT 8080              // Port to listen on
-#define MAX_PACKET_SIZE 1500   // in bytes (depending on MTU) 
+#define MAX_PACKET_SIZE 1400   // in bytes (depending on MTU) 
 #define BUFFER_SIZE 8192       // in bytes (depending on MTU) 
 #define ECN_MASK ecn_ce
 
@@ -33,9 +33,9 @@ struct datamessage_t {
     count_tp seq_nr;           // packet sequence number, should start with 1 and increase monotonic with packets sent
 
     void hton() {              // swap the bytes if needed
-        htonl(timestamp);
-        htonl(echoed_timestamp);
-        htonl(seq_nr);
+        timestamp = htonl(timestamp);
+        echoed_timestamp = htonl(echoed_timestamp);
+        seq_nr = htonl(seq_nr);
     }
 };
 
@@ -48,11 +48,11 @@ struct ackmessage_t {
     bool error_L4S;            // receiver found a bleached/error ECN; stop using L4S_id on the sending packets!
 
     void hton() {              // swap the bytes if needed
-        htonl(timestamp);
-        htonl(echoed_timestamp);
-        htonl(packets_received);
-        htonl(packets_CE);
-        htonl(packets_lost);
+        timestamp = htonl(timestamp);
+        echoed_timestamp = htonl(echoed_timestamp);
+        packets_received = htonl(packets_received);
+        packets_CE = htonl(packets_CE);
+        packets_lost = htonl(packets_lost);
     }
 };
 #pragma pack(pop)
@@ -90,56 +90,14 @@ void cleanupsocks()
 
 ecn_tp current_ecn = ecn_not_ect;
 
-ssize_t recvfromecn(int sockfd, void *buf, size_t len, ecn_tp &ecn, SOCKADDR *src_addr, socklen_t *addrlen)
+ssize_t recvfromecn(int sockfd, char *buf, size_t len, ecn_tp &ecn, SOCKADDR *src_addr, socklen_t *addrlen)
 {
-    return 0;
+    return recvfrom(sockfd, buf,  len, 0, src_addr, addrlen);
 }
-ssize_t sendtoecn(SOCKET sockfd, const void *buf, size_t len, ecn_tp ecn, const SOCKADDR *dest_addr, socklen_t addrlen)
+ssize_t sendtoecn(SOCKET sockfd, const char *buf, size_t len, ecn_tp ecn, const SOCKADDR *dest_addr, socklen_t addrlen)
 {
-    return 0;
+    return sendto(sockfd, buf, len, 0, dest_addr, addrlen);
 }
-/*
-void sendtoEcn(SOCKET sock, PSOCKADDR_STORAGE addr, LPFN_WSASENDMSG sendmsg, PCHAR data, INT datalen)
-{
-    DWORD numBytes;
-    INT error;
-
-    CHAR control[WSA_CMSG_SPACE(sizeof(INT))] = { 0 };
-    WSABUF dataBuf;
-    WSABUF controlBuf;
-    WSAMSG wsaMsg;
-    PCMSGHDR cmsg;
-
-    dataBuf.buf = PCHAR(buf);
-    dataBuf.len = len;
-    controlBuf.buf = control;
-    controlBuf.len = sizeof(control);
-    wsaMsg.name = (PSOCKADDR)dest_addr;
-    wsaMsg.namelen = (INT)INET_SOCKADDR_LENGTH(dest_addr->ss_family);
-    wsaMsg.lpBuffers = &dataBuf;
-    wsaMsg.dwBufferCount = 1;
-    wsaMsg.Control = controlBuf;
-    wsaMsg.dwFlags = 0;
-
-    cmsg = WSA_CMSG_FIRSTHDR(&wsaMsg);
-    cmsg->cmsg_len = WSA_CMSG_LEN(sizeof(INT));
-    cmsg->cmsg_level = (addr->ss_family == AF_INET) ? IPPROTO_IP : IPPROTO_IPV6;
-    cmsg->cmsg_type = (addr->ss_family == AF_INET) ? IP_ECN : IPV6_ECN;
-    *(PINT)WSA_CMSG_DATA(cmsg) = ECN_ECT_0;
-
-    error =
-        sendmsg(
-            sock,
-            &wsaMsg,
-            0,
-            &numBytes,
-            NULL,
-            NULL);
-    if (error == SOCKET_ERROR) {
-        printf("sendmsg failed %d\n", WSAGetLastError());
-    }
-}*/
-
 
 int main()
 {
@@ -167,14 +125,12 @@ int main()
     }
 
     char receivebuffer[BUFFER_SIZE];
-//    struct iphdr *iph = (iphdr*)receivebuffer; // Obverlay on IP header in receivebuffer
 
-    struct datamessage_t *data_msg;  // pointer in the receive buffer
+    struct datamessage_t& data_msg = (struct datamessage_t&)(receivebuffer);  // overlaying the receive buffer
     struct ackmessage_t ack_msg;     // the send buffer
 
     // create a PragueCC object. No parameters needed if only ACKs are sent
-    PragueCC pragueCC(0, 0, 0, 0, 0, 0, 0);
-
+    PragueCC pragueCC;
 
     // Receive data from client
     while (true) {
@@ -193,12 +149,11 @@ int main()
         }
 
         // Extract the data message
-        data_msg = (struct datamessage_t *)(receivebuffer);// +iph->ihl * 4); ???
-        data_msg->hton();  // swap byte order if needed
+        data_msg.hton();  // swap byte order if needed
 
         // Pass the relevant data to the PragueCC object:
-        pragueCC.PacketReceived(data_msg->timestamp, data_msg->echoed_timestamp);
-        pragueCC.DataReceivedSequence(rcv_ecn, data_msg->seq_nr);
+        pragueCC.PacketReceived(data_msg.timestamp, data_msg.echoed_timestamp);
+        pragueCC.DataReceivedSequence(rcv_ecn, data_msg.seq_nr);
 
         // Return a corresponding acknowledge message
         ecn_tp new_ecn;
@@ -207,7 +162,7 @@ int main()
             ack_msg.packets_lost, ack_msg.error_L4S);
 
         ack_msg.hton();  // swap byte order if needed
-        ssize_t bytes_sent = sendtoecn(sockfd, &ack_msg, sizeof(ack_msg), new_ecn, (SOCKADDR *)&client_addr, client_len);
+        ssize_t bytes_sent = sendtoecn(sockfd, (char*)(&ack_msg), sizeof(ack_msg), new_ecn, (SOCKADDR *)&client_addr, client_len);
         if (bytes_sent != sizeof(ack_msg)) {
             perror("invalid ack packet length sent");
             exit(1);
