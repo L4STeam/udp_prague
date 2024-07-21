@@ -72,13 +72,13 @@ class PragueCC: private PragueState {
     public:
 
         PragueCC(
-            rate_tp init_rate,         // 12500 Byte/s (equiv. 100kbps)
-            count_tp init_window,      // 10 packets
-            rate_tp min_rate,          // 12500 Byte/s (equiv. 100kbps)
-            rate_tp max_rate,          // 12500000000 Byte/s (equiv. 100Gbps)
-            size_tp max_packet_size,   // use MTU detection, or a low enough value. Can be updated on the fly
-            fps_tp fps,                // only used for video; frames per second, 0 must be used for bulk transfer
-            time_tp frame_budget)      // only used for video; over what time [µs] you want to pace the frame (max 1000000/fps [µs])
+            rate_tp init_rate = 12500,        // 12500 Byte/s (equiv. 100kbps)
+            count_tp init_window = 10,        // 10 packets
+            rate_tp min_rate = 12500,         // 12500 Byte/s (equiv. 100kbps)
+            rate_tp max_rate = 12500000000,   // 12500000000 Byte/s (equiv. 100Gbps)
+            size_tp max_packet_size = 1400,   // use MTU detection, or a low enough value. Can be updated on the fly
+            fps_tp fps = 0,                   // only used for video; frames per second, 0 must be used for bulk transfer
+            time_tp frame_budget = 0)         // only used for video; over what time [µs] you want to pace the frame (max 1000000/fps [µs])
         {
             time_tp ts_now = Now();
         // parameters
@@ -102,7 +102,7 @@ class PragueCC: private PragueState {
             m_r_packets_lost = 0;
             m_r_error_L4S = false; // as a receiver, check L4S-ECN validity to echo back an error
         // sender end variables
-            m_cc_ts;   // time of last cc update
+            m_cc_ts = ts_now;   // time of last cc update
             m_packets_received = 0; // latest known receiver end counters
             m_packets_CE = 0; 
             m_packets_lost = 0;
