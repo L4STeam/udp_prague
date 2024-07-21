@@ -6,27 +6,21 @@
 #include <iostream>
 #include <winsock2.h>
 #elif __linux__
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
+#include <argp.h>
 #include <unistd.h>
-#include <arpa/inet.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
 #include <netinet/ip.h>
 #endif
 
 #include "prague_cc.h"
 
-
 #define PORT 8080              // Port to listen on
-#define MAX_PACKET_SIZE 1400   // in bytes (depending on MTU) 
 #define BUFFER_SIZE 8192       // in bytes (depending on MTU) 
 #define ECN_MASK ecn_ce
 
 #pragma pack(push, 1)
 struct datamessage_t {
-    time_tp timestamp;	       // timestamp from peer, freeze and keep this time
+    time_tp timestamp;         // timestamp from peer, freeze and keep this time
     time_tp echoed_timestamp;  // echoed_timestamp can be used to calculate the RTT
     count_tp seq_nr;           // packet sequence number, should start with 1 and increase monotonic with packets sent
 
@@ -38,7 +32,7 @@ struct datamessage_t {
 };
 
 struct ackmessage_t {
-    time_tp timestamp;	       // timestamp from peer, freeze and keep this time
+    time_tp timestamp;         // timestamp from peer, freeze and keep this time
     time_tp echoed_timestamp;  // echoed_timestamp can be used to calculate the RTT
     count_tp packets_received; // echoed_packet counter
     count_tp packets_CE;       // echoed CE counter
@@ -66,6 +60,39 @@ typedef struct sockaddr_in SOCKADDR_IN;
 typedef struct sockaddr SOCKADDR;
 #define SIN_ADDR sin_addr.s_addr
 #endif
+
+static char prog_doc[] = "UDP Packet Receiver";
+
+static struct argp_option prog_options[] =
+{
+        {"rcv_port",    'p',    "PORT",      0, "Receiver port",         0},
+        { 0,             0,      0,          0,  0,                      0}
+};
+
+struct Args {
+    uint32_t    rcv_port     =  8080;
+};
+
+static error_t parse_opt (int key, char *arg, struct argp_state *state)
+{
+    Args *args = static_cast<Args*>(state->input);
+    switch (key)
+    {
+        case 'p':
+            args->rcv_port = atoi(arg);
+            break;
+        case ARGP_KEY_ARG:
+            argp_usage(state);
+            break;
+        case ARGP_KEY_END:
+            break;
+        default:
+            return ARGP_ERR_UNKNOWN;
+    }
+    return 0;
+}
+
+static struct argp argp = { prog_options, parse_opt, NULL, prog_doc, 0, 0, 0 };
 
 void initsocks()
 {
@@ -96,8 +123,17 @@ ssize_t sendtoecn(SOCKET sockfd, const char *buf, size_t len, ecn_tp ecn, const 
     return sendto(sockfd, buf, len, 0, dest_addr, addrlen);
 }
 
-int main()
+int main(int argc, char **argv)
 {
+        Args args;
+    int err;
+    // [TODO] Add Error handing for arguments
+    if ((err = argp_parse(&argp, argc, argv, 0, 0, &args)))
+    {
+        std::cerr << "Failed to parse program arguments: " << strerror(err) << std::endl;
+        return err;
+    }
+
     initsocks();
     // Create a UDP socket
     SOCKET sockfd = socket(AF_INET, SOCK_DGRAM, 0);
@@ -111,16 +147,16 @@ int main()
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
     server_addr.SIN_ADDR = INADDR_ANY;
-    server_addr.sin_port = htons(PORT);
+    server_addr.sin_port = htons(args.rcv_port);
 
     // Bind the socket to the server address
     if (int(bind(sockfd, (SOCKADDR *)&server_addr, sizeof(server_addr))) < 0) {
         printf("Bind failed.\n");
 #ifdef WIN32
         closesocket(sockfd);
-	cleanupsocks();
+        cleanupsocks();
 #elif __linux__
-	close(sockfd);
+        close(sockfd);
         cleanupsocks();
 #endif
         exit(1);

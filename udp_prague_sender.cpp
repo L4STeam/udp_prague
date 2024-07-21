@@ -6,27 +6,20 @@
 #include <iostream>
 #include <winsock2.h>
 #elif __linux__
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
+#include <argp.h>
+#include <arpa/inet.h>
 #include <netinet/ip.h>
 #endif
 
 #include "prague_cc.h"
 
-
-#define SERVER_PORT 8080       // Port to send to
-#define SERVER_IP 0x7F000001   // IP to send to
-#define MAX_PACKET_SIZE 1400   // in bytes (depending on MTU) 
 #define BUFFER_SIZE 8192       // in bytes (depending on MTU) 
 #define ECN_MASK ecn_ce
 
 #pragma pack(push, 1)
 struct datamessage_t {
-    time_tp timestamp;	       // timestamp from peer, freeze and keep this time
+    time_tp timestamp;         // timestamp from peer, freeze and keep this time
     time_tp echoed_timestamp;  // echoed_timestamp can be used to calculate the RTT
     count_tp seq_nr;           // packet sequence number, should start with 1 and increase monotonic with packets sent
 
@@ -38,7 +31,7 @@ struct datamessage_t {
 };
 
 struct ackmessage_t {
-    time_tp timestamp;	       // timestamp from peer, freeze and keep this time
+    time_tp timestamp;         // timestamp from peer, freeze and keep this time
     time_tp echoed_timestamp;  // echoed_timestamp can be used to calculate the RTT
     count_tp packets_received; // echoed_packet counter
     count_tp packets_CE;       // echoed CE counter
@@ -66,6 +59,49 @@ typedef struct sockaddr_in SOCKADDR_IN;
 typedef struct sockaddr SOCKADDR;
 #define SIN_ADDR sin_addr.s_addr
 #endif
+
+static char prog_doc[] = "UDP Packet Sender";
+
+static struct argp_option prog_options[] =
+{
+        {"rcv_addr",    'a',    "ADDRESS",   0, "Receiver IP address",   0},
+        {"rcv_port",    'p',    "PORT",      0, "Receiver port",         0},
+        {"max_pkt",     'm',    "MAX_PKT",   0, "Maximum packet size",   0},
+        { 0,             0,      0,          0,  0,                      0}
+};
+
+struct Args {
+    const char *rcv_addr     = "127.0.0.1";
+    uint32_t    rcv_port     =  8080;
+    uint32_t    max_pkt      =  1400;
+};
+
+static error_t parse_opt (int key, char *arg, struct argp_state *state)
+{
+    Args *args = static_cast<Args*>(state->input);
+    switch (key)
+    {
+        case 'a':
+            args->rcv_addr = arg;
+            break;
+        case 'p':
+            args->rcv_port = atoi(arg);
+            break;
+        case 'm':
+            args->max_pkt = atoi(arg);
+            break;
+        case ARGP_KEY_ARG:
+            argp_usage(state);
+            break;
+        case ARGP_KEY_END:
+            break;
+        default:
+            return ARGP_ERR_UNKNOWN;
+    }
+    return 0;
+}
+
+static struct argp argp = { prog_options, parse_opt, NULL, prog_doc, 0, 0, 0 };
 
 void initsocks()
 {
@@ -96,8 +132,17 @@ ssize_t sendtoecn(SOCKET sockfd, const char *buf, size_t len, ecn_tp ecn, const 
     return sendto(sockfd, buf, len, 0, dest_addr, addrlen);
 }
 
-int main()
+int main(int argc, char **argv)
 {
+    Args args;
+    int err;
+    // [TODO] Add Error handing for arguments
+    if ((err = argp_parse(&argp, argc, argv, 0, 0, &args)))
+    {
+        std::cerr << "Failed to parse program arguments: " << strerror(err) << std::endl;
+        return err;
+    }
+
     initsocks();
     // Create a UDP socket
     SOCKET sockfd = socket(AF_INET, SOCK_DGRAM, 0);
@@ -110,8 +155,8 @@ int main()
     SOCKADDR_IN server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
-    server_addr.SIN_ADDR = htonl(SERVER_IP);
-    server_addr.sin_port = htons(SERVER_PORT);
+    server_addr.SIN_ADDR = htonl(inet_addr(args.rcv_addr));
+    server_addr.sin_port = htons(args.rcv_port);
 
 /*    // Bind the socket to the server address
     if (int(bind(sockfd, (SOCKADDR *)&server_addr, sizeof(server_addr))) < 0) {
@@ -143,7 +188,8 @@ int main()
     pragueCC.GetCCInfo(pacing_rate, packet_window, packet_burst, packet_size);
     while (true) {
         count_tp inburst = 0;
-	time_tp timeout = 0;
+        // [TODO] Add timout functionality
+        time_tp timeout = 0;
         time_tp startSend = 0;
         time_tp now = pragueCC.Now();
         while ((inflight < packet_window) && (inburst < packet_burst) && (nextSend <= now)) {
