@@ -52,12 +52,12 @@ struct ackmessage_t {
 WSADATA wsaData;
 typedef int socklen_t;
 typedef int ssize_t;
-#define SIN_ADDR sin_addr.S_un.S_addr
+#define S_ADDR S_un.S_addr
 #elif __linux__
 typedef int SOCKET;
 typedef struct sockaddr_in SOCKADDR_IN;
 typedef struct sockaddr SOCKADDR;
-#define SIN_ADDR sin_addr.s_addr
+#define S_ADDR s_addr
 #endif
 
 static char prog_doc[] = "UDP Packet Sender";
@@ -155,7 +155,7 @@ int main(int argc, char **argv)
     SOCKADDR_IN server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
-    server_addr.SIN_ADDR = htonl(inet_addr(args.rcv_addr));
+    server_addr.sin_addr.S_ADDR = htonl(inet_addr(args.rcv_addr));
     server_addr.sin_port = htons(args.rcv_port);
 
 /*    // Bind the socket to the server address
