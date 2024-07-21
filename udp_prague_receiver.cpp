@@ -5,8 +5,6 @@
 #ifdef WIN32
 #include <iostream>
 #include <winsock2.h>
-#include <ws2tcpip.h>
-#include <ws2ipdef.h>
 #elif __linux__
 #include <stdio.h>
 #include <stdlib.h>
