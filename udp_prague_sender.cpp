@@ -129,6 +129,13 @@ ssize_t recvfromecn(int sockfd, char *buf, size_t len, ecn_tp &ecn, SOCKADDR *sr
 }
 ssize_t sendtoecn(SOCKET sockfd, const char *buf, size_t len, ecn_tp ecn, const SOCKADDR *dest_addr, socklen_t addrlen)
 {
+#ifdef WIN32
+#elif __linux__
+    if (setsockopt(sockfd, IPPROTO_IP, IP_TOS, &ecn, sizeof(ecn)) < 0) {
+        printf("Could not apply ecn %d,\n", ecn);
+        return -1;
+    }
+#endif
     return sendto(sockfd, buf, len, 0, dest_addr, addrlen);
 }
 
