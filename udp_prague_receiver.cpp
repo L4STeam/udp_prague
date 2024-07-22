@@ -6,6 +6,8 @@
 #include <iostream>
 #include <winsock2.h>
 #elif __linux__
+#include <array>
+#include <cassert>
 #include <string.h>
 #include <argp.h>
 #include <unistd.h>
@@ -117,7 +119,32 @@ ecn_tp current_ecn = ecn_not_ect;
 
 ssize_t recvfrom_ecn_timeout(int sockfd, char *buf, size_t len, ecn_tp &ecn, time_tp timeout, SOCKADDR *src_addr, socklen_t *addrlen)
 {
-    return recvfrom(sockfd, buf, len, 0, src_addr, addrlen);
+#ifdef WIN32
+#elif __linux__
+    ssize_t r;
+    char ctrl_msg[len];
+    struct msghdr rcv_msg;
+    struct iovec rcv_iov[1];
+    rcv_iov[0].iov_len = len;
+    rcv_iov[0].iov_base = buf;
+
+    rcv_msg.msg_name = NULL;
+    rcv_msg.msg_namelen = 0;
+    rcv_msg.msg_iov = rcv_iov;
+    rcv_msg.msg_iovlen = len;
+    rcv_msg.msg_control = ctrl_msg;
+
+    if ((r = recvmsg(sockfd, &rcv_msg, 0)) < 0)
+    {
+        printf("Failtto recv UDP message from socket\n");
+        return -1;
+    }
+    auto cmptr = CMSG_FIRSTHDR(&rcv_msg);
+    assert(cmptr->cmsg_level == IPPROTO_IP && cmptr->cmsg_type == IP_TOS);
+    ecn = (ecn_tp)((unsigned char)(*(uint32_t*)CMSG_DATA(cmptr)) & ECN_MASK);
+
+    return r;
+#endif
 }
 ssize_t sendto_ecn(SOCKET sockfd, const char *buf, size_t len, ecn_tp ecn, const SOCKADDR *dest_addr, socklen_t addrlen)
 {
