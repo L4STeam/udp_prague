@@ -93,21 +93,6 @@ int main()
 ### You need to ACK data as a "Receiver"
 Simplified flow essentials for a receiver that only ACKs (here every packet, but can skip x packets as in delayed ACKs in TCP). The full runnable code is in **udp_prague_receiver.cpp** (a single file that compiles to an executable).
 ```
-// message fields provided and used by PragueCC, exchanged between both ends 
-struct datamessage_t {
-    time_tp timestamp;	       // timestamp from peer
-    time_tp echoed_timestamp;  // echoed_timestamp can be used to calculate the RTT
-    count_tp seq_nr;           // packet sequence number, should start with 1 and increase monotonic with packets sent
-};
-struct ackmessage_t {
-    time_tp timestamp;	       // timestamp from peer, freeze and keep this time
-    time_tp echoed_timestamp;  // echoed_timestamp can be used to calculate the RTT
-    count_tp packets_received; // echoed_packet counter
-    count_tp packets_CE;       // echoed CE counter
-    count_tp packets_lost;     // echoed lost counter
-    bool error_L4S;            // receiver found a bleached/error ECN; stop using L4S_id on the sending packets!
-};
-
 int main()
 {
     opensocket(); // bind to listening port
