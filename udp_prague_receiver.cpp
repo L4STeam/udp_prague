@@ -9,14 +9,12 @@
 #include <array>
 #include <cassert>
 #include <string.h>
-#include <argp.h>
 #include <unistd.h>
 #include <netinet/ip.h>
 #endif
 
 #include "prague_cc.h"
 
-#define PORT 8080              // Port to listen on
 #define BUFFER_SIZE 8192       // in bytes (depending on MTU) 
 #define ECN_MASK ecn_ce
 
@@ -64,39 +62,6 @@ typedef struct sockaddr SOCKADDR;
 #define closesocket close
 #endif
 
-static char prog_doc[] = "UDP Packet Receiver";
-
-static struct argp_option prog_options[] =
-{
-        {"rcv_port",    'p',    "PORT",      0, "Receiver port",         0},
-        { 0,             0,      0,          0,  0,                      0}
-};
-
-struct Args {
-    uint32_t    rcv_port     =  8080;
-};
-
-static error_t parse_opt (int key, char *arg, struct argp_state *state)
-{
-    Args *args = static_cast<Args*>(state->input);
-    switch (key)
-    {
-        case 'p':
-            args->rcv_port = atoi(arg);
-            break;
-        case ARGP_KEY_ARG:
-            argp_usage(state);
-            break;
-        case ARGP_KEY_END:
-            break;
-        default:
-            return ARGP_ERR_UNKNOWN;
-    }
-    return 0;
-}
-
-static struct argp argp = { prog_options, parse_opt, NULL, prog_doc, 0, 0, 0 };
-
 void initsocks()
 {
 #ifdef WIN32
@@ -120,6 +85,7 @@ ecn_tp current_ecn = ecn_not_ect;
 ssize_t recvfrom_ecn_timeout(int sockfd, char *buf, size_t len, ecn_tp &ecn, time_tp timeout, SOCKADDR *src_addr, socklen_t *addrlen)
 {
 #ifdef WIN32
+    return recvfrom(sockfd, buf, len, 0, src_addr, addrlen);
 #elif __linux__
     ssize_t r;
     char ctrl_msg[len];
@@ -136,7 +102,7 @@ ssize_t recvfrom_ecn_timeout(int sockfd, char *buf, size_t len, ecn_tp &ecn, tim
 
     if ((r = recvmsg(sockfd, &rcv_msg, 0)) < 0)
     {
-        printf("Failtto recv UDP message from socket\n");
+        printf("Failt to recv UDP message from socket\n");
         return -1;
     }
     auto cmptr = CMSG_FIRSTHDR(&rcv_msg);
@@ -186,15 +152,16 @@ ssize_t sendto_ecn(SOCKET sockfd, const char *buf, size_t len, ecn_tp ecn, const
 
 int main(int argc, char **argv)
 {
-        Args args;
-    int err;
-    // [TODO] Add Error handing for arguments
-    if ((err = argp_parse(&argp, argc, argv, 0, 0, &args)))
-    {
-        std::cerr << "Failed to parse program arguments: " << strerror(err) << std::endl;
-        return err;
+    int rcv_port = 8080;
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "-p" && i + 1 < argc)
+            rcv_port = atoi(argv[++i]);
+        else {
+            perror("Usage: udp_prague_receiver -p <receiver port>");;
+            return 1;
+        }
     }
-
     initsocks();
     // Create a UDP socket
     SOCKET sockfd = socket(AF_INET, SOCK_DGRAM, 0);
@@ -208,7 +175,7 @@ int main(int argc, char **argv)
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.S_ADDR = INADDR_ANY;
-    server_addr.sin_port = htons(args.rcv_port);
+    server_addr.sin_port = htons(rcv_port);
 
     // Bind the socket to the server address
     if (int(bind(sockfd, (SOCKADDR *)&server_addr, sizeof(server_addr))) < 0) {
@@ -217,6 +184,8 @@ int main(int argc, char **argv)
         cleanupsocks();
         exit(1);
     }
+
+    printf("UDP Prague receiver listening on port %d.\n", rcv_port);
 
     char receivebuffer[BUFFER_SIZE];
 
