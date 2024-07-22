@@ -115,13 +115,46 @@ void cleanupsocks()
 
 ecn_tp current_ecn = ecn_not_ect;
 
-ssize_t recvfromecn(int sockfd, char *buf, size_t len, ecn_tp &ecn, SOCKADDR *src_addr, socklen_t *addrlen)
+ssize_t recvfrom_ecn_timeout(int sockfd, char *buf, size_t len, ecn_tp &ecn, time_tp timeout, SOCKADDR *src_addr, socklen_t *addrlen)
 {
-    return recvfrom(sockfd, buf,  len, 0, src_addr, addrlen);
+    return recvfrom(sockfd, buf, len, 0, src_addr, addrlen);
 }
-ssize_t sendtoecn(SOCKET sockfd, const char *buf, size_t len, ecn_tp ecn, const SOCKADDR *dest_addr, socklen_t addrlen)
+ssize_t sendto_ecn(SOCKET sockfd, const char *buf, size_t len, ecn_tp ecn, const SOCKADDR *dest_addr, socklen_t addrlen)
 {
+#ifdef WIN32
+    DWORD numBytes;
+    INT error;
+    CHAR control[WSA_CMSG_SPACE(sizeof(INT))] = { 0 };
+    WSABUF dataBuf;
+    WSABUF controlBuf;
+    WSAMSG wsaMsg;
+    PCMSGHDR cmsg;
+    dataBuf.buf = buf;
+    dataBuf.len = len;
+    controlBuf.buf = control;
+    controlBuf.len = sizeof(control);
+    wsaMsg.name = dest_addr;
+    wsaMsg.namelen = addrlen;
+    wsaMsg.lpBuffers = &dataBuf;
+    wsaMsg.dwBufferCount = 1;
+    wsaMsg.Control = controlBuf;
+    wsaMsg.dwFlags = 0;
+    cmsg = WSA_CMSG_FIRSTHDR(&wsaMsg);
+    cmsg->cmsg_len = WSA_CMSG_LEN(sizeof(INT));
+    cmsg->cmsg_level = (PSOCKADDR_STORAGE(dest_addr)->ss_family == AF_INET) ? IPPROTO_IP : IPPROTO_IPV6;
+    cmsg->cmsg_type = (PSOCKADDR_STORAGE(dest_addr)->ss_family == AF_INET) ? IP_ECN : IPV6_ECN;
+    *(PINT)WSA_CMSG_DATA(cmsg) = ecn;
+    return sendmsg(sockfd, &wsaMsg, 0, &numBytes, NULL, NULL);
+#elif __linux__
+    if (current_ecn != ecn) {
+        if (setsockopt(sockfd, IPPROTO_IP, IP_TOS, &ecn, sizeof(ecn)) < 0) {
+            printf("Could not apply ecn %d,\n", ecn);
+            return -1;
+        }
+        current_ecn = ecn;
+    }
     return sendto(sockfd, buf, len, 0, dest_addr, addrlen);
+#endif
 }
 
 int main(int argc, char **argv)
@@ -172,14 +205,14 @@ int main(int argc, char **argv)
         SOCKADDR_IN client_addr;
         socklen_t client_len = sizeof(client_addr);
         ecn_tp rcv_ecn;
-        ssize_t bytes_received = recvfromecn(sockfd, receivebuffer, sizeof(receivebuffer), rcv_ecn, (SOCKADDR *)&client_addr, &client_len);
+        ssize_t bytes_received = recvfrom_ecn_timeout(sockfd, receivebuffer, sizeof(receivebuffer), rcv_ecn, 0, (SOCKADDR *)&client_addr, &client_len);
 
         while (bytes_received == -1) {   // repeat if timeout or interrupted
             if (errno != EWOULDBLOCK && errno != EAGAIN) {
                 perror("ERROR on recvfrom");
                 exit(1);
             }
-            bytes_received = recvfromecn(sockfd, receivebuffer, sizeof(receivebuffer), rcv_ecn, (SOCKADDR *)&client_addr, &client_len);
+            bytes_received = recvfrom_ecn_timeout(sockfd, receivebuffer, sizeof(receivebuffer), rcv_ecn, 0, (SOCKADDR *)&client_addr, &client_len);
         }
 
         // Extract the data message
@@ -196,7 +229,7 @@ int main(int argc, char **argv)
             ack_msg.packets_lost, ack_msg.error_L4S);
 
         ack_msg.hton();  // swap byte order if needed
-        ssize_t bytes_sent = sendtoecn(sockfd, (char*)(&ack_msg), sizeof(ack_msg), new_ecn, (SOCKADDR *)&client_addr, client_len);
+        ssize_t bytes_sent = sendto_ecn(sockfd, (char*)(&ack_msg), sizeof(ack_msg), new_ecn, (SOCKADDR *)&client_addr, client_len);
         if (bytes_sent != sizeof(ack_msg)) {
             perror("invalid ack packet length sent");
             exit(1);
