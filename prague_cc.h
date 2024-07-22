@@ -4,7 +4,6 @@
 #include <stdint.h>
 #include <iostream>
 
-
 typedef uint64_t size_tp;    // size in Bytes
 typedef uint64_t window_tp;  // fractional window size in µBytes (to match time in µs, for easy Bytes/second rate calculations)
 typedef uint64_t rate_tp;    // rate in Bytes/second
@@ -143,67 +142,67 @@ class PragueCC: private PragueState {
         }
         ~PragueCC() {}
 
-        time_tp Now();           // will have to return a monotonic increasing signed int 32 which will wrap around (after 4000 seconds)
+        time_tp Now();                 // will have to return a monotonic increasing signed int 32 which will wrap around (after 4000 seconds)
 
-        bool PacketReceived(	 // call this when a packet is received from peer, returns false if the old packet is ignored
-            time_tp timestamp,	       // timestamp from peer, freeze and keep this time
+        bool PacketReceived(           // call this when a packet is received from peer, returns false if the old packet is ignored
+            time_tp timestamp,         // timestamp from peer, freeze and keep this time
             time_tp echoed_timestamp); // echoed_timestamp can be used to calculate the RTT
 
-        bool ACKReceived(        // call this when an ACK is received from peer, returns false if the old ack is ignored
+        bool ACKReceived(              // call this when an ACK is received from peer, returns false if the old ack is ignored
             count_tp packets_received, // echoed_packet counter
-            count_tp packets_CE,	   // echoed CE counter
-            count_tp packets_lost,	   // echoed lost counter
+            count_tp packets_CE,       // echoed CE counter
+            count_tp packets_lost,     // echoed lost counter
             count_tp packets_sent,     // local counter of packets sent up to now, an RTT is reached if remote ACK packets_received+packets_lost
-            bool error_L4S,             // receiver found a bleached/error ECN; stop using L4S_id on the sending packets!
-            count_tp &inflight);         // how many packets are in flight after the ACKed);
+            bool error_L4S,            // receiver found a bleached/error ECN; stop using L4S_id on the sending packets!
+            count_tp &inflight);       // how many packets are in flight after the ACKed);
 
-        bool FrameACKReceived(   // call this when a frame ACK is received from peer
+        bool FrameACKReceived(         // call this when a frame ACK is received from peer
             count_tp packets_received, // echoed_packet counter
             count_tp packets_CE,       // echoed CE counter
             count_tp packets_lost,     // echoed lost counter
             bool error_L4S);           // receiver found a bleached/error ECN; stop using L4S_id on the sending packets!
 
-        void DataReceived(  // call this when a data packet is received as a receiver and you can identify lost packets
+        void DataReceived(             // call this when a data packet is received as a receiver and you can identify lost packets
             ecn_tp ip_ecn,             // IP.ECN field value
-            count_tp packets_lost);     // packets skipped; can be optionally -1 to potentially undo a previous cwindow reduction 
+            count_tp packets_lost);    // packets skipped; can be optionally -1 to potentially undo a previous cwindow reduction 
 
-        void DataReceivedSequence(  // call this every time when a data packet with a sequence number is received as a receiver
+        void DataReceivedSequence(     // call this every time when a data packet with a sequence number is received as a receiver
             ecn_tp ip_ecn,             // IP.ECN field value
-            count_tp packet_seq_nr);     // sequence number of the received packet 
+            count_tp packet_seq_nr);   // sequence number of the received packet 
 
-        void ResetCCInfo();      // call this when there is a RTO detected
+        void ResetCCInfo();            // call this when there is a RTO detected
         
-        void GetTimeInfo(        // when the any-app needs to send a packet
+        void GetTimeInfo(              // when the any-app needs to send a packet
             time_tp &timestamp,        // Own timestamp to echo by peer
             time_tp &echoed_timestamp, // defrosted timestamp echoed to peer
             ecn_tp &ip_ecn);           // ecn field to be set in the IP header
 
-        void GetCCInfo(          // when the sending-app needs to send a packet
+        void GetCCInfo(                // when the sending-app needs to send a packet
             rate_tp &pacing_rate,      // rate to pace the packets
             count_tp &packet_window,   // the congestion window in number of packets
             count_tp &packet_burst,    // number of packets that can be paced at once (<250µs)
             size_tp &packet_size);     // the packet size to transmit
 
-        void GetACKInfo(         // when the receiving-app needs to send a packet
+        void GetACKInfo(               // when the receiving-app needs to send a packet
             count_tp &packets_received,// packet counter to echo
             count_tp &packets_CE,      // CE counter to echo
             count_tp &packets_lost,    // lost counter to echo (if used)
             bool &error_L4S);          // bleached/error ECN status to echo
 
-        void GetCCInfoVideo(     // when the sending app needs to send a frame
+        void GetCCInfoVideo(           // when the sending app needs to send a frame
             rate_tp &pacing_rate,      // rate to pace the packets
             size_tp &frame_size,       // the size of a single frame in Bytes
             count_tp &frame_window,    // the congestion window in number of frames
             count_tp &packet_burst,    // number of packets that can be paced at once (<250µs)
             size_tp &packet_size);     // the packet size to transmit
 
-        void GetStats(          // For logging purposes
+        void GetStats(                 // For logging purposes
             PragueState &stats)
         {
             stats = *this;  // makes a copy of the internal state and parameters
         }
 
-        time_tp getSrtt() {return m_srtt;}  // get the smoothed RTT
+        time_tp getSrtt() {return m_srtt;}    // get the smoothed RTT
         prob_tp getAlpha() {return m_alpha;}  // get alpha
 
 };
