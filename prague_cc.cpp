@@ -150,6 +150,7 @@ void PragueCC::DataReceivedSequence(  // call this every time when a data packet
     ecn_tp ip_ecn,                    // IP.ECN field value
     count_tp packet_seq_nr)           // sequence number of the received packet 
 {
+    ip_ecn = ecn_tp(ip_ecn & ecn_ce);
     m_r_packets_received++;           // assuming no duplicates (by for instance the NW)
     count_tp skipped = packet_seq_nr - m_r_packets_received - m_r_packets_lost;
     if (skipped >= 0)
@@ -170,6 +171,7 @@ void PragueCC::DataReceived(   // call this when a data packet is received as a 
     ecn_tp ip_ecn,             // IP.ECN field value
     count_tp packets_lost)     // packets skipped; can be optionally -1 to potentially undo a previous cwindow reduction 
 {
+    ip_ecn = ecn_tp(ip_ecn & ecn_ce);
     m_r_packets_received++;
     m_r_packets_lost += packets_lost;
     if (ip_ecn == ecn_ce)
