@@ -112,7 +112,7 @@ ssize_t recvfrom_ecn_timeout(int sockfd, char *buf, size_t len, ecn_tp &ecn, tim
     return r;
 #endif
 }
-ssize_t sendto_ecn(SOCKET sockfd, const char *buf, size_t len, ecn_tp ecn, const SOCKADDR *dest_addr, socklen_t addrlen)
+ssize_t sendto_ecn(SOCKET sockfd, char *buf, size_t len, ecn_tp ecn, const SOCKADDR *dest_addr, socklen_t addrlen)
 {
 #ifdef WIN32
     DWORD numBytes;
