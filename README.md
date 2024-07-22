@@ -20,60 +20,109 @@ To make it RT-Prague. Just provide an "fps" frame rate in Hz and "frame_budget" 
 ## How to use continuous mode (examples)
 Use the PragueCC object as follows in a sender and a receiver in continuous mode. The same object can be used for bidirectionally data sending too.
 
+### You need to carry this between Sender (sends data_msg) and Reciever (sends ack_msg)
+These message fields are provided and used by PragueCC, and need to be exchanged between both ends. Alternatives can be discussed... 
+```
+struct datamessage_t {
+    time_tp timestamp;	       // timestamp from peer
+    time_tp echoed_timestamp;  // echoed_timestamp can be used to calculate the RTT
+    count_tp seq_nr;           // packet sequence number, should start with 1 and increase monotonic with packets sent
+};
+struct ackmessage_t {
+    time_tp timestamp;	       // timestamp from peer, freeze and keep this time
+    time_tp echoed_timestamp;  // echoed_timestamp can be used to calculate the RTT
+    count_tp packets_received; // echoed_packet counter
+    count_tp packets_CE;       // echoed CE counter
+    count_tp packets_lost;     // echoed lost counter
+    bool error_L4S;            // receiver found a bleached/error ECN; stop using L4S_id on the sending packets!
+};
+```
+
 ### You want to send data as a "Sender"
 Simplified flow essentials for a Prague congestion controlled sender. The full runnable code is in **udp_prague_sender.cpp** (a single file that compiles to an executable).
 ```
-open(socket);
-nextSend=now;
-seqnr=1;
-inflight=0;
-PragueCC.GetCCInfo(pacing_rate, packet_window, packet_burst, packet_size);
-while (true)
-    inburst = 0;
-    timeout = 0;
-    startSend = 0;
-    now_temp = now();
-    while (inflight < packet_window) && (inburst < packet_burst) && (nextSend <= now_temp)
-        PragueCC.getTimeInfo(data_msg.timestamp, data_msg.echoed_timestamp, data_msg.seq_nr, new_ecn)
-        data_msg.payload = 0; // or other content
-        if (startSend == 0)
-            startSend = now();
-        sendMsg(data_msg);
-        inburst++;
-        inflight++;
-        seqnr++;
-    if (startSend != 0)
-        nextSend = startSend + packet_size*inburst*µs_per_second/pacing_rate;
-    waitTimeout = 0;
-    ack_msg = 0;
-    if (inflight < packet_window)
-        waitTimeout = nextSend;
-    else
-        waitTimeout = now() + 1000000;
-    while (waitTimeout > now() && ack_msg == 0)
-        timeout = waitTimeout – now();
-        ack_msg = receiveMsg(timeout);
-    if (ack_msg)
-        PragueCC.PacketReceived(pass ack_msg fields);
-        PragueCC.AckReceived(pass ack_msg fields and &inflight);
-    else // timeout, reset state
-        if (inflight >= packet_window);
-            PragueCC->ResetCCInfo();
-    PragueCC->GetCCInfo(get pacing_rate, packet_window, packet_burst, packet_size);
+int main()
+{
+    opensocket(); // connect to the server ip/port
+    PragueCC pragueCC;    // create a PragueCC object. Using default parameters for the Prague CC in line with TCP_Prague
+    // allocate CC variables
+    time_tp nextSend = pragueCC.Now();
+    count_tp seqnr = 1;
+    count_tp inflight = 0;
+    rate_tp pacing_rate;
+    count_tp packet_window;
+    count_tp packet_burst;
+    size_tp packet_size;
+    pragueCC.GetCCInfo(pacing_rate, packet_window, packet_burst, packet_size); // and retrieve them
+    while (true) {
+        // allocate pacing variables
+        count_tp inburst = 0;
+        time_tp timeout = 0;
+        time_tp startSend = 0;
+        time_tp now = pragueCC.Now();
+        while ((inflight < packet_window) && (inburst < packet_burst) && (nextSend <= now)) {
+            // send messages with the retrieved timestamps and snd_ecn
+            pragueCC.GetTimeInfo(data_msg.timestamp, data_msg.echoed_timestamp, snd_ecn);
+            if (startSend == 0)
+                startSend = now;
+            data_msg.seq_nr = seqnr;
+            sendto_ecn(data_msg, new_ecn);
+            inburst++;
+            inflight++;
+            seqnr++;
+        }
+        if (startSend != 0) // we have send some data
+            nextSend = startSend + packet_size * inburst * 1000000 / pacing_rate;
+        time_tp waitTimeout = (inflight < packet_window) ? nextSend : pragueCC.Now() + 1000000;
+        do {
+            timeout = waitTimeout - pragueCC.Now();
+            recvfrom_ecn_timeout(ack_msg, rcv_ecn);
+        } while ((waitTimeout > pragueCC.Now()) && (bytes_received < 0));
+        if (isvalid(ack_msg)) {
+            pragueCC.PacketReceived(ack_msg.timestamp, ack_msg.echoed_timestamp);
+            pragueCC.ACKReceived(ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, seqnr, ack_msg.error_L4S, inflight);
+        }
+        else // timeout, reset state
+            if (inflight >= packet_window)
+                pragueCC.ResetCCInfo();
+        pragueCC.GetCCInfo(pacing_rate, packet_window, packet_burst, packet_size);
+    }
+}
 ```
 
 ### You need to ACK data as a "Receiver"
 Simplified flow essentials for a receiver that only ACKs (here every packet, but can skip x packets as in delayed ACKs in TCP). The full runnable code is in **udp_prague_receiver.cpp** (a single file that compiles to an executable).
 ```
-open(socket);
-while (true)
-    data_msg = receiveMsg();
-    if (data_msg)
-        PragueCC.PacketReceived(data_msg.timestamp, data_msg.echoedTimestamp);
-        PragueCC.DataReceivedSequence(tos & 3, data_msg.seq_nr);
-    PragueCC.GetTimeInfo(ack_msg.timestamp, ack_msg.echoedTimestamp, new_ecn);
-    PragueCC.GetACKInfo(ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, ack_msg.error_L4S);
-    if (new_ecn changed)
-        set the new_ecn with a socket option
-    sendMsg(ack_msg);
+// message fields provided and used by PragueCC, exchanged between both ends 
+struct datamessage_t {
+    time_tp timestamp;	       // timestamp from peer
+    time_tp echoed_timestamp;  // echoed_timestamp can be used to calculate the RTT
+    count_tp seq_nr;           // packet sequence number, should start with 1 and increase monotonic with packets sent
+};
+struct ackmessage_t {
+    time_tp timestamp;	       // timestamp from peer, freeze and keep this time
+    time_tp echoed_timestamp;  // echoed_timestamp can be used to calculate the RTT
+    count_tp packets_received; // echoed_packet counter
+    count_tp packets_CE;       // echoed CE counter
+    count_tp packets_lost;     // echoed lost counter
+    bool error_L4S;            // receiver found a bleached/error ECN; stop using L4S_id on the sending packets!
+};
+
+int main()
+{
+    opensocket(); // bind to listening port
+    PragueCC pragueCC;    // create a PragueCC object. No parameters needed if only ACKs are sent
+    while (true) {
+        recvfrom_ecn_timeout(data_msg, rcv_ecn, infinite_timeout, client);
+
+        // Pass the relevant data to the PragueCC object:
+        pragueCC.PacketReceived(data_msg.timestamp, data_msg.echoed_timestamp);
+        pragueCC.DataReceivedSequence(rcv_ecn, data_msg.seq_nr);
+
+        // Return a corresponding acknowledge message
+        pragueCC.GetTimeInfo(ack_msg.timestamp, ack_msg.echoed_timestamp, snd_ecn); // get timestamps and ecn bits to use
+        pragueCC.GetACKInfo(ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, ack_msg.error_L4S);
+        sendtoecn(ack_msg, snd_ecn, client); // if snd_ecn changed, it will set the new bits in the socket option
+    }
+}
 ```
