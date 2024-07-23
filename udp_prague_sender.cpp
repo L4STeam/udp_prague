@@ -3,11 +3,11 @@
 //
 
 #ifdef WIN32
+#define _WINSOCK_DEPRECATED_NO_WARNINGS
 #include <iostream>
 #include <winsock2.h>
 #elif __linux__
 #include <string.h>
-#include <argp.h>
 #include <arpa/inet.h>
 #include <netinet/ip.h>
 #endif
@@ -60,49 +60,6 @@ typedef struct sockaddr SOCKADDR;
 #define S_ADDR s_addr
 #endif
 
-static char prog_doc[] = "UDP Packet Sender";
-
-static struct argp_option prog_options[] =
-{
-        {"rcv_addr",    'a',    "ADDRESS",   0, "Receiver IP address",   0},
-        {"rcv_port",    'p',    "PORT",      0, "Receiver port",         0},
-        {"max_pkt",     'm',    "MAX_PKT",   0, "Maximum packet size",   0},
-        { 0,             0,      0,          0,  0,                      0}
-};
-
-struct Args {
-    const char *rcv_addr     = "127.0.0.1";
-    uint32_t    rcv_port     =  8080;
-    uint32_t    max_pkt      =  1400;
-};
-
-static error_t parse_opt (int key, char *arg, struct argp_state *state)
-{
-    Args *args = static_cast<Args*>(state->input);
-    switch (key)
-    {
-        case 'a':
-            args->rcv_addr = arg;
-            break;
-        case 'p':
-            args->rcv_port = atoi(arg);
-            break;
-        case 'm':
-            args->max_pkt = atoi(arg);
-            break;
-        case ARGP_KEY_ARG:
-            argp_usage(state);
-            break;
-        case ARGP_KEY_END:
-            break;
-        default:
-            return ARGP_ERR_UNKNOWN;
-    }
-    return 0;
-}
-
-static struct argp argp = { prog_options, parse_opt, NULL, prog_doc, 0, 0, 0 };
-
 void initsocks()
 {
 #ifdef WIN32
@@ -127,7 +84,7 @@ ssize_t recvfrom_ecn_timeout(int sockfd, char *buf, size_t len, ecn_tp &ecn, tim
 {
     return recvfrom(sockfd, buf, len, 0, src_addr, addrlen);
 }
-ssize_t sendto_ecn(SOCKET sockfd, const char *buf, size_t len, ecn_tp ecn, const SOCKADDR *dest_addr, socklen_t addrlen)
+ssize_t sendto_ecn(SOCKET sockfd, char *buf, size_t len, ecn_tp ecn, const SOCKADDR *dest_addr, socklen_t addrlen)
 {
 #ifdef WIN32
     DWORD numBytes;
@@ -167,15 +124,22 @@ ssize_t sendto_ecn(SOCKET sockfd, const char *buf, size_t len, ecn_tp ecn, const
 
 int main(int argc, char **argv)
 {
-    Args args;
-    int err;
-    // [TODO] Add Error handing for arguments
-    if ((err = argp_parse(&argp, argc, argv, 0, 0, &args)))
-    {
-        std::cerr << "Failed to parse program arguments: " << strerror(err) << std::endl;
-        return err;
+    const char *rcv_addr = "127.0.0.1";
+    uint32_t rcv_port = 8080;
+    size_tp max_pkt = 1400;
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "-a" && i + 1 < argc)
+            rcv_addr = argv[++i];
+        else if (arg == "-p" && i + 1 < argc)
+            rcv_port = atoi(argv[++i]);
+        else if (arg == "-m" && i + 1 < argc)
+            max_pkt = atoi(argv[++i]);
+        else {
+            perror("Usage: udp_prague_receiver -a <receiver address> -p <receiver port> -m <max packet length>");;
+            return 1;
+        }
     }
-
     initsocks();
     // Create a UDP socket
     SOCKET sockfd = socket(AF_INET, SOCK_DGRAM, 0);
@@ -188,8 +152,8 @@ int main(int argc, char **argv)
     SOCKADDR_IN server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.S_ADDR = htonl(inet_addr(args.rcv_addr));
-    server_addr.sin_port = htons(args.rcv_port);
+    server_addr.sin_addr.S_ADDR = inet_addr(rcv_addr);
+    server_addr.sin_port = htons(rcv_port);
 
     char receivebuffer[BUFFER_SIZE];
     uint32_t sendbuffer[BUFFER_SIZE/4];
@@ -199,6 +163,8 @@ int main(int argc, char **argv)
 
     struct ackmessage_t& ack_msg = (struct ackmessage_t&)(receivebuffer);  // overlaying the receive buffer
     struct datamessage_t& data_msg = (struct datamessage_t&)(sendbuffer);  // overlaying the send buffer
+
+    printf("UDP Prague sender sending to %s on port %d with max packet size %d bytes.\n", rcv_addr, rcv_port, max_pkt);
 
     // create a PragueCC object. Using default parameters for the Prague CC in line with TCP_Prague
     PragueCC pragueCC;
