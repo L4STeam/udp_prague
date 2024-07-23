@@ -6,6 +6,7 @@
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 #include <iostream>
 #include <winsock2.h>
+#include <ws2tcpip.h>
 #elif __linux__
 #include <string.h>
 #include <arpa/inet.h>
@@ -84,9 +85,9 @@ ssize_t recvfrom_ecn_timeout(int sockfd, char *buf, size_t len, ecn_tp &ecn, tim
 {
     return recvfrom(sockfd, buf, len, 0, src_addr, addrlen);
 }
-ssize_t sendto_ecn(SOCKET sockfd, char *buf, size_t len, ecn_tp ecn, const SOCKADDR *dest_addr, socklen_t addrlen)
+ssize_t sendto_ecn(SOCKET sockfd, char *buf, size_t len, ecn_tp ecn, SOCKADDR *dest_addr, socklen_t addrlen)
 {
-#ifdef WIN32
+#ifdef WIN32_not_yet_ok
     DWORD numBytes;
     INT error;
     CHAR control[WSA_CMSG_SPACE(sizeof(INT))] = { 0 };
@@ -118,8 +119,8 @@ ssize_t sendto_ecn(SOCKET sockfd, char *buf, size_t len, ecn_tp ecn, const SOCKA
         }
         current_ecn = ecn;
     }
-    return sendto(sockfd, buf, len, 0, dest_addr, addrlen);
 #endif
+    return sendto(sockfd, buf, len, 0, dest_addr, addrlen);
 }
 
 int main(int argc, char **argv)
@@ -167,7 +168,7 @@ int main(int argc, char **argv)
     printf("UDP Prague sender sending to %s on port %d with max packet size %d bytes.\n", rcv_addr, rcv_port, max_pkt);
 
     // create a PragueCC object. Using default parameters for the Prague CC in line with TCP_Prague
-    PragueCC pragueCC;
+    PragueCC pragueCC(max_pkt);
 
     time_tp nextSend = pragueCC.Now();
     count_tp seqnr = 1;
