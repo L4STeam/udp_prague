@@ -102,9 +102,13 @@ ssize_t recvfrom_ecn_timeout(int sockfd, char *buf, size_t len, ecn_tp &ecn, tim
     rcv_msg.msg_control = ctrl_msg;
     rcv_msg.msg_controllen = len;
 
+    if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
+        perror("setsock timeout failed\n");
+        return -1;
+    }
     if ((r = recvmsg(sockfd, &rcv_msg, 0)) < 0)
     {
-        printf("Failt to recv UDP message from socket\n");
+        perror("Failt to recv UDP message from socket\n");
         return -1;
     }
     auto cmptr = CMSG_FIRSTHDR(&rcv_msg);
@@ -221,7 +225,7 @@ int main(int argc, char **argv)
             }
             bytes_received = recvfrom_ecn_timeout(sockfd, receivebuffer, sizeof(receivebuffer), rcv_ecn, 0, (SOCKADDR *)&client_addr, &client_len);
         }
-        printf("UDP Prague receiver receiving ECN %d with max packet size %ld bytes.\n", rcv_ecn, bytes_received);
+        printf("UDP Prague receiver receiving ECN %d with packet size %ld bytes.\n", rcv_ecn, bytes_received);
 
         // Extract the data message
         data_msg.hton();  // swap byte order if needed
