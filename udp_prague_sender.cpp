@@ -165,7 +165,7 @@ int main(int argc, char **argv)
     struct ackmessage_t& ack_msg = (struct ackmessage_t&)(receivebuffer);  // overlaying the receive buffer
     struct datamessage_t& data_msg = (struct datamessage_t&)(sendbuffer);  // overlaying the send buffer
 
-    printf("UDP Prague sender sending to %s on port %d with max packet size %d bytes.\n", rcv_addr, rcv_port, max_pkt);
+    printf("UDP Prague sender sending to %s on port %d with max packet size %ld bytes.\n", rcv_addr, rcv_port, max_pkt);
 
     // create a PragueCC object. Using default parameters for the Prague CC in line with TCP_Prague
     PragueCC pragueCC(max_pkt);
@@ -196,6 +196,7 @@ int main(int argc, char **argv)
                 perror("invalid data packet length sent");
                 exit(1);
             }
+            printf("Sent %ld bytes, packet_size %ld size.", bytes_sent, packet_size);
             inburst++;
             inflight++;
             seqnr++;

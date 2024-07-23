@@ -89,6 +89,7 @@ ssize_t recvfrom_ecn_timeout(int sockfd, char *buf, size_t len, ecn_tp &ecn, tim
 #elif __linux__
     ssize_t r;
     char ctrl_msg[len];
+
     struct msghdr rcv_msg;
     struct iovec rcv_iov[1];
     rcv_iov[0].iov_len = len;
@@ -97,8 +98,9 @@ ssize_t recvfrom_ecn_timeout(int sockfd, char *buf, size_t len, ecn_tp &ecn, tim
     rcv_msg.msg_name = NULL;
     rcv_msg.msg_namelen = 0;
     rcv_msg.msg_iov = rcv_iov;
-    rcv_msg.msg_iovlen = len;
+    rcv_msg.msg_iovlen = 1;
     rcv_msg.msg_control = ctrl_msg;
+    rcv_msg.msg_controllen = len;
 
     if ((r = recvmsg(sockfd, &rcv_msg, 0)) < 0)
     {
@@ -185,6 +187,15 @@ int main(int argc, char **argv)
         exit(1);
     }
 
+    #ifdef WIN32
+    #elif __linux__
+    unsigned int set = 1;
+    if (setsockopt(sockfd, IPPROTO_IP, IP_RECVTOS, &set, sizeof(set)) < 0) {
+        printf("Could not set RECVTOS");
+        exit(1);
+    }
+    #endif
+
     printf("UDP Prague receiver listening on port %d.\n", rcv_port);
 
     char receivebuffer[BUFFER_SIZE];
@@ -210,6 +221,7 @@ int main(int argc, char **argv)
             }
             bytes_received = recvfrom_ecn_timeout(sockfd, receivebuffer, sizeof(receivebuffer), rcv_ecn, 0, (SOCKADDR *)&client_addr, &client_len);
         }
+        printf("UDP Prague receiver receiving ECN %d with max packet size %ld bytes.\n", rcv_ecn, bytes_received);
 
         // Extract the data message
         data_msg.hton();  // swap byte order if needed

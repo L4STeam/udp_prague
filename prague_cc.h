@@ -43,21 +43,21 @@ struct PragueState {
         count_tp  m_packets_lost;
         count_tp  m_packets_sent;
         bool      m_error_L4S;            // latest known receiver-end error state
-        // for alpha calculation, keep the previous alpha variables' state
+    // for alpha calculation, keep the previous alpha variables' state
         time_tp   m_alpha_ts;
         count_tp  m_alpha_packets_received;
         count_tp  m_alpha_packets_CE;
         count_tp  m_alpha_packets_lost;
         count_tp  m_alpha_packets_sent;
-        // for loss and recovery calculation
+    // for loss and recovery calculation
         time_tp   m_loss_ts;
         window_tp m_lost_window;
         count_tp  m_loss_packets_lost;
         count_tp  m_loss_packets_sent;
-        // for congestion experienced and window reduction (cwr) calculation
+    // for congestion experienced and window reduction (cwr) calculation
         time_tp   m_cwr_ts;
         count_tp  m_cwr_packets_sent;
-        // state updated for the actual congestion control variables
+    // state updated for the actual congestion control variables
         cs_tp     m_cc_state;
         prob_tp   m_alpha;
         rate_tp   m_pacing_rate;
@@ -107,21 +107,21 @@ class PragueCC: private PragueState {
             m_packets_lost = 0;
             m_packets_sent = 0;
             m_error_L4S = false; // latest known receiver end error state
-            // for alpha calculation, keep the previous alpha variables' state
+        // for alpha calculation, keep the previous alpha variables' state
             m_alpha_ts = ts_now;  // start recording alpha from now on (every vrtt)
             m_alpha_packets_received = 0; 
             m_alpha_packets_CE = 0;
             m_alpha_packets_lost = 0;
             m_alpha_packets_sent = 0;
-            // for loss and recovery calculation
+        // for loss and recovery calculation
             m_loss_ts = 0;
             m_lost_window = 0;
             m_loss_packets_lost = 0;
             m_loss_packets_sent = 0;
-            // for congestion experienced and window reduction (cwr) calculation
+        // for congestion experienced and window reduction (cwr) calculation
             m_cwr_ts = 0;
             m_cwr_packets_sent = 0;
-            // state updated for the actual congestion control variables
+        // state updated for the actual congestion control variables
             m_cc_state = cs_init;
             m_alpha = 0;
             m_pacing_rate = init_rate;
