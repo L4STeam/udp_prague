@@ -102,13 +102,21 @@ ssize_t recvfrom_ecn_timeout(int sockfd, char *buf, size_t len, ecn_tp &ecn, tim
     rcv_msg.msg_control = ctrl_msg;
     rcv_msg.msg_controllen = sizeof(ctrl_msg);
 
-    //if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
-    //    printf("setsock timeout failed\n");
-    //    return -1;
-    //}
+    struct timeval tv_in;
+    tv_in.tv_sec =  ((uint32_t) timeout) / 1000000;
+    tv_in.tv_usec = ((uint32_t) timeout) % 1000000;
+    if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv_in, sizeof(tv_in)) < 0) {
+        perror("setsock timeout failed\n");
+        return -1;
+    }
+    //struct timeval tc_out;
+    //socklen_t vslen = sizeof(tv_out);
+    //getsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv_out, &vslen);
+    //printf("After setsockopt:  tv_sec = %ld ; tv_usec = %ld TO: %d\n", tv_out.tv_sec, tv_out.tv_usec, timeout);
+
     if ((r = recvmsg(sockfd, &rcv_msg, 0)) < 0)
     {
-        printf("Failt to recv UDP message from socket\n");
+        perror("Fail to recv UDP message from socket\n");
         return -1;
     }
     auto cmptr = CMSG_FIRSTHDR(&rcv_msg);
@@ -222,7 +230,6 @@ int main(int argc, char **argv)
     pragueCC.GetCCInfo(pacing_rate, packet_window, packet_burst, packet_size);
     while (true) {
         count_tp inburst = 0;
-        // [TODO] Add timout functionality
         time_tp timeout = 0;
         time_tp startSend = 0;
         time_tp now = pragueCC.Now();
@@ -238,7 +245,7 @@ int main(int argc, char **argv)
                 perror("invalid data packet length sent");
                 exit(1);
             }
-            printf("Sent %ld bytes, packet_size %ld size.", bytes_sent, packet_size);
+            //printf("Sent %ld bytes, packet_size %ld size.", bytes_sent, packet_size);
             inburst++;
             inflight++;
             seqnr++;
@@ -258,6 +265,7 @@ int main(int argc, char **argv)
             SOCKADDR_IN src_addr;
             socklen_t src_len = sizeof(src_addr);
             bytes_received = recvfrom_ecn_timeout(sockfd, receivebuffer, sizeof(receivebuffer), rcv_ecn, timeout, (SOCKADDR *)&src_addr, &src_len);
+            //printf("From:\t %s:%d\n", inet_ntoa(src_addr.sin_addr), ntohs(src_addr.sin_port));
             if ((bytes_received == -1) && (errno != EWOULDBLOCK) && (errno != EAGAIN)) {
                 perror("ERROR on recvfrom");
                 exit(1);

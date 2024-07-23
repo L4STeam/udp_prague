@@ -67,7 +67,7 @@ void initsocks()
 #ifdef WIN32
     // Initialize Winsock
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
-        printf("WSAStartup failed.\n");
+        perror("WSAStartup failed.\n");
         exit(1);
     }
 #endif
@@ -102,13 +102,9 @@ ssize_t recvfrom_ecn_timeout(int sockfd, char *buf, size_t len, ecn_tp &ecn, tim
     rcv_msg.msg_control = ctrl_msg;
     rcv_msg.msg_controllen = sizeof(ctrl_msg);
 
-    //if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
-    //    printf("setsock timeout failed\n");
-    //    return -1;
-    //}
     if ((r = recvmsg(sockfd, &rcv_msg, 0)) < 0)
     {
-        printf("Failt to recv UDP message from socket\n");
+        perror("Fail to recv UDP message from socket\n");
         return -1;
     }
     auto cmptr = CMSG_FIRSTHDR(&rcv_msg);
@@ -173,7 +169,7 @@ int main(int argc, char **argv)
     // Create a UDP socket
     SOCKET sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (int(sockfd) < 0) {
-        printf("Socket creation failed.\n");
+        perror("Socket creation failed.\n");
         cleanupsocks();
         exit(1);
     }
@@ -186,7 +182,7 @@ int main(int argc, char **argv)
 
     // Bind the socket to the server address
     if (int(bind(sockfd, (SOCKADDR *)&server_addr, sizeof(server_addr))) < 0) {
-        printf("Bind failed.\n");
+        perror("Bind failed.\n");
         closesocket(sockfd);
         cleanupsocks();
         exit(1);
@@ -196,7 +192,7 @@ int main(int argc, char **argv)
     #elif __linux__
     unsigned int set = 1;
     if (setsockopt(sockfd, IPPROTO_IP, IP_RECVTOS, &set, sizeof(set)) < 0) {
-        printf("Could not set RECVTOS");
+        perror("Could not set RECVTOS");
         exit(1);
     }
     #endif
@@ -218,7 +214,7 @@ int main(int argc, char **argv)
         socklen_t client_len = sizeof(client_addr);
         ecn_tp rcv_ecn;
         ssize_t bytes_received = recvfrom_ecn_timeout(sockfd, receivebuffer, sizeof(receivebuffer), rcv_ecn, 0, (SOCKADDR *)&client_addr, &client_len);
-        printf("From:\t %s:%d\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+        //printf("From:\t %s:%d\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
 
         while (bytes_received == -1) {   // repeat if timeout or interrupted
             if (errno != EWOULDBLOCK && errno != EAGAIN) {
@@ -227,10 +223,11 @@ int main(int argc, char **argv)
             }
             bytes_received = recvfrom_ecn_timeout(sockfd, receivebuffer, sizeof(receivebuffer), rcv_ecn, 0, (SOCKADDR *)&client_addr, &client_len);
         }
-        printf("UDP Prague receiving ECN %d with size %ld bytes from %s:%d.\n", rcv_ecn, bytes_received, inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+        //printf("UDP Prague receiving ECN %d with size %ld bytes from %s:%d.\n", rcv_ecn, bytes_received, inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
 
         // Extract the data message
-        data_msg.hton();  // swap byte order if needed
+        data_msg.hton();  // swap byte order
+        //printf("Get timestamp from sender: %d\t%d\n", data_msg.timestamp, data_msg.echoed_timestamp);
 
         // Pass the relevant data to the PragueCC object:
         pragueCC.PacketReceived(data_msg.timestamp, data_msg.echoed_timestamp);
@@ -239,8 +236,8 @@ int main(int argc, char **argv)
         // Return a corresponding acknowledge message
         ecn_tp new_ecn;
         pragueCC.GetTimeInfo(ack_msg.timestamp, ack_msg.echoed_timestamp, new_ecn);
-        pragueCC.GetACKInfo(ack_msg.packets_received, ack_msg.packets_CE,
-            ack_msg.packets_lost, ack_msg.error_L4S);
+        pragueCC.GetACKInfo(ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, ack_msg.error_L4S);
+        //printf("Send timestamp from receiverr: %d\t%d with %d rcv_pkt\n", ack_msg.timestamp, ack_msg.echoed_timestamp, ack_msg.packets_received);
 
         ack_msg.hton();  // swap byte order if needed
         ssize_t bytes_sent = sendto_ecn(sockfd, (char*)(&ack_msg), sizeof(ack_msg), new_ecn, (SOCKADDR *)&client_addr, client_len);
