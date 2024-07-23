@@ -88,24 +88,24 @@ ssize_t recvfrom_ecn_timeout(int sockfd, char *buf, size_t len, ecn_tp &ecn, tim
     return recvfrom(sockfd, buf, len, 0, src_addr, addrlen);
 #elif __linux__
     ssize_t r;
-    char ctrl_msg[len];
+    char ctrl_msg[CMSG_SPACE(sizeof(ecn))];
 
     struct msghdr rcv_msg;
     struct iovec rcv_iov[1];
     rcv_iov[0].iov_len = len;
     rcv_iov[0].iov_base = buf;
 
-    rcv_msg.msg_name = NULL;
-    rcv_msg.msg_namelen = 0;
+    rcv_msg.msg_name = (SOCKADDR_IN *) src_addr;
+    rcv_msg.msg_namelen = *addrlen;
     rcv_msg.msg_iov = rcv_iov;
     rcv_msg.msg_iovlen = 1;
     rcv_msg.msg_control = ctrl_msg;
-    rcv_msg.msg_controllen = len;
+    rcv_msg.msg_controllen = sizeof(ctrl_msg);
 
-    if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
-        printf("setsock timeout failed\n");
-        return -1;
-    }
+    //if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
+    //    printf("setsock timeout failed\n");
+    //    return -1;
+    //}
     if ((r = recvmsg(sockfd, &rcv_msg, 0)) < 0)
     {
         printf("Failt to recv UDP message from socket\n");
