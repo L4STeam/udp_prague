@@ -105,20 +105,36 @@ ssize_t recvfrom_ecn_timeout(int sockfd, char *buf, size_t len, ecn_tp &ecn, tim
     struct timeval tv_in;
     tv_in.tv_sec =  ((uint32_t) timeout) / 1000000;
     tv_in.tv_usec = ((uint32_t) timeout) % 1000000;
-    if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv_in, sizeof(tv_in)) < 0) {
-        perror("setsock timeout failed\n");
-        return -1;
-    }
-    //struct timeval tc_out;
+    //if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv_in, sizeof(tv_in)) < 0) {
+    //    perror("setsock timeout failed\n");
+    //    return -1;
+    //}
+    //struct timeval tv_out;
     //socklen_t vslen = sizeof(tv_out);
     //getsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv_out, &vslen);
     //printf("After setsockopt:  tv_sec = %ld ; tv_usec = %ld TO: %d\n", tv_out.tv_sec, tv_out.tv_usec, timeout);
-
-    if ((r = recvmsg(sockfd, &rcv_msg, 0)) < 0)
-    {
-        perror("Fail to recv UDP message from socket\n");
+    fd_set recvsds;
+    FD_ZERO(&recvsds);
+    FD_SET((unsigned int) sockfd, &recvsds);
+    int rv = select(sockfd + 1, &recvsds, NULL, NULL, &tv_in);
+    if (rv < 0) {
+        // select error
         return -1;
+    } else if (rv == 0)  {
+        // Timeout
+	return 0;
+    } else {
+        // socket has something to read
+        if ((r = recvmsg(sockfd, &rcv_msg, 0)) < 0) {
+            perror("Fail to recv UDP message from socket\n");
+            return -1;
+        }
     }
+    //if ((r = recvmsg(sockfd, &rcv_msg, 0)) < 0)
+    //{
+    //    perror("Fail to recv UDP message from socket\n");
+    //    return -1;
+    //}
     auto cmptr = CMSG_FIRSTHDR(&rcv_msg);
     assert(cmptr->cmsg_level == IPPROTO_IP && cmptr->cmsg_type == IP_TOS);
     ecn = (ecn_tp)((unsigned char)(*(uint32_t*)CMSG_DATA(cmptr)) & ECN_MASK);
@@ -166,6 +182,13 @@ ssize_t sendto_ecn(SOCKET sockfd, char *buf, size_t len, ecn_tp ecn, SOCKADDR *d
 
 int main(int argc, char **argv)
 {
+    struct sched_param sp;
+    sp.sched_priority = sched_get_priority_max(SCHED_RR);
+    // SCHED_OTHER, SCHED_FIFO, SCHED_RR
+    if (sched_setscheduler(0, SCHED_RR, &sp) < 0) {
+        perror("Client set scheduler");
+    }
+
     const char *rcv_addr = "127.0.0.1";
     uint32_t rcv_port = 8080;
     size_tp max_pkt = 1400;
@@ -264,9 +287,12 @@ int main(int argc, char **argv)
             timeout = waitTimeout - now;
             SOCKADDR_IN src_addr;
             socklen_t src_len = sizeof(src_addr);
+
             bytes_received = recvfrom_ecn_timeout(sockfd, receivebuffer, sizeof(receivebuffer), rcv_ecn, timeout, (SOCKADDR *)&src_addr, &src_len);
+	    printf("Time diff: %d, TO: %d, B_recv: %ld\n",  pragueCC.Now() - now, timeout, bytes_received);
             //printf("From:\t %s:%d\n", inet_ntoa(src_addr.sin_addr), ntohs(src_addr.sin_port));
-            if ((bytes_received == -1) && (errno != EWOULDBLOCK) && (errno != EAGAIN)) {
+            //if ((bytes_received == -1) && (errno != EWOULDBLOCK) && (errno != EAGAIN)) {
+            if (bytes_received == -1) {
                 perror("ERROR on recvfrom");
                 exit(1);
             }

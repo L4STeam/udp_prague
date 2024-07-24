@@ -206,6 +206,7 @@ int main(int argc, char **argv)
 
     // create a PragueCC object. No parameters needed if only ACKs are sent
     PragueCC pragueCC;
+    time_tp prev_tp = 0;
 
     // Receive data from client
     while (true) {
@@ -237,7 +238,9 @@ int main(int argc, char **argv)
         ecn_tp new_ecn;
         pragueCC.GetTimeInfo(ack_msg.timestamp, ack_msg.echoed_timestamp, new_ecn);
         pragueCC.GetACKInfo(ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, ack_msg.error_L4S);
-        //printf("Send timestamp from receiverr: %d\t%d with %d rcv_pkt\n", ack_msg.timestamp, ack_msg.echoed_timestamp, ack_msg.packets_received);
+
+        printf("Send timestamp from receiverr: %d (diff= %d) with %d rcv_pkt\n", ack_msg.timestamp, data_msg.timestamp - prev_tp, ack_msg.packets_received);
+        prev_tp = data_msg.timestamp;
 
         ack_msg.hton();  // swap byte order if needed
         ssize_t bytes_sent = sendto_ecn(sockfd, (char*)(&ack_msg), sizeof(ack_msg), new_ecn, (SOCKADDR *)&client_addr, client_len);
