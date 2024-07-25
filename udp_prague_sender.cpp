@@ -189,6 +189,7 @@ int main(int argc, char **argv)
         perror("Client set scheduler");
     }
 
+    bool verbose = false;
     const char *rcv_addr = "127.0.0.1";
     uint32_t rcv_port = 8080;
     size_tp max_pkt = 1400;
@@ -200,8 +201,10 @@ int main(int argc, char **argv)
             rcv_port = atoi(argv[++i]);
         else if (arg == "-m" && i + 1 < argc)
             max_pkt = atoi(argv[++i]);
+        else if (arg == "-v")
+            verbose = true;
         else {
-            perror("Usage: udp_prague_receiver -a <receiver address> -p <receiver port> -m <max packet length>");;
+            perror("Usage: udp_prague_receiver -a <receiver address> -p <receiver port> -m <max packet length> -v (for verbose prints)");;
             return 1;
         }
     }
@@ -244,13 +247,18 @@ int main(int argc, char **argv)
     PragueCC pragueCC(max_pkt);
 
     time_tp nextSend = pragueCC.Now();
-    count_tp seqnr = 1;
+    time_tp ref_tm = nextSend;
+    count_tp seqnr = 0;
     count_tp inflight = 0;
     rate_tp pacing_rate;
     count_tp packet_window;
     count_tp packet_burst;
     size_tp packet_size;
     pragueCC.GetCCInfo(pacing_rate, packet_window, packet_burst, packet_size);
+    if (verbose) {
+        printf("r: time, timestamp, echoed_timestamp, packets_received, packets_CE, packets_lost, seqnr, error_L4S, inflight\n");
+        printf("s: time, pacing_rate, packet_window, packet_burst, packet_size, seqnr, inflight, inburst, nextSend\n");
+    }
     while (true) {
         count_tp inburst = 0;
         time_tp timeout = 0;
@@ -261,17 +269,18 @@ int main(int argc, char **argv)
             pragueCC.GetTimeInfo(data_msg.timestamp, data_msg.echoed_timestamp, new_ecn);
             if (startSend == 0)
                 startSend = now;
-            data_msg.seq_nr = seqnr;
+            data_msg.seq_nr = ++seqnr;
             data_msg.hton();  // swap byte order if needed
             ssize_t bytes_sent = sendto_ecn(sockfd, (char*)(&data_msg), packet_size, new_ecn, (SOCKADDR *)&server_addr, sizeof(server_addr));
-            if (bytes_sent < 0 || ((size_tp) bytes_sent) != packet_size) {
+            if (verbose)
+	        printf("s: %d,  %ld, %d, %d, %ld, %d, %d, %d, %d\n", now - ref_tm, pacing_rate, packet_window, packet_burst, packet_size, seqnr, inflight, inburst, nextSend - ref_tm);
+	    if (bytes_sent < 0 || ((size_tp) bytes_sent) != packet_size) {
                 perror("invalid data packet length sent");
                 exit(1);
             }
             //printf("Infight %d, Inburst %d, nextSend %d\n", inflight, inburst, nextSend);
             inburst++;
             inflight++;
-            seqnr++;
         }
         if (startSend != 0)
             nextSend = startSend + packet_size * inburst * 1000000 / pacing_rate;
@@ -299,11 +308,13 @@ int main(int argc, char **argv)
             now = pragueCC.Now();
         } while ((waitTimeout > now) && (bytes_received < 0));
         if (bytes_received >= ssize_t(sizeof(ack_msg))) {
-            pragueCC.PacketReceived(ack_msg.timestamp, ack_msg.echoed_timestamp);
-	    ack_msg.hton();
+            ack_msg.hton();
+	    pragueCC.PacketReceived(ack_msg.timestamp, ack_msg.echoed_timestamp);
 	    //printf("ack_msg.packets_received: %d\n", ack_msg.packets_received);
             pragueCC.ACKReceived(ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, seqnr, ack_msg.error_L4S, inflight);
-        }
+            if (verbose)
+	        printf("r: %d, %d, %d, %d, %d, %d, %d, %d,%d\n", now - ref_tm, ack_msg.timestamp, ack_msg.echoed_timestamp, ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, seqnr, ack_msg.error_L4S, inflight);
+	}
         else // timeout, reset state
             if (inflight >= packet_window)
                 pragueCC.ResetCCInfo();
