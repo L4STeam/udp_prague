@@ -16,7 +16,7 @@
 
 #include "prague_cc.h"
 
-#define BUFFER_SIZE 8192       // in bytes (depending on MTU) 
+#define BUFFER_SIZE 8192       // in bytes (depending on MTU)
 #define ECN_MASK ecn_ce
 
 #pragma pack(push, 1)
@@ -105,14 +105,6 @@ ssize_t recvfrom_ecn_timeout(int sockfd, char *buf, size_t len, ecn_tp &ecn, tim
     struct timeval tv_in;
     tv_in.tv_sec =  ((uint32_t) timeout) / 1000000;
     tv_in.tv_usec = ((uint32_t) timeout) % 1000000;
-    //if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv_in, sizeof(tv_in)) < 0) {
-    //    perror("setsock timeout failed\n");
-    //    return -1;
-    //}
-    //struct timeval tv_out;
-    //socklen_t vslen = sizeof(tv_out);
-    //getsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv_out, &vslen);
-    //printf("After setsockopt:  tv_sec = %ld ; tv_usec = %ld TO: %d\n", tv_out.tv_sec, tv_out.tv_usec, timeout);
     fd_set recvsds;
     FD_ZERO(&recvsds);
     FD_SET((unsigned int) sockfd, &recvsds);
@@ -122,7 +114,7 @@ ssize_t recvfrom_ecn_timeout(int sockfd, char *buf, size_t len, ecn_tp &ecn, tim
         return -1;
     } else if (rv == 0)  {
         // Timeout
-	return 0;
+        return 0;
     } else {
         // socket has something to read
         if ((r = recvmsg(sockfd, &rcv_msg, 0)) < 0) {
@@ -130,12 +122,7 @@ ssize_t recvfrom_ecn_timeout(int sockfd, char *buf, size_t len, ecn_tp &ecn, tim
             return -1;
         }
     }
-    //if ((r = recvmsg(sockfd, &rcv_msg, 0)) < 0)
-    //{
-    //    perror("Fail to recv UDP message from socket\n");
-    //    return -1;
-    //}
-    auto cmptr = CMSG_FIRSTHDR(&rcv_msg);
+    struct cmsghdr *cmptr = CMSG_FIRSTHDR(&rcv_msg);
     assert(cmptr->cmsg_level == IPPROTO_IP && cmptr->cmsg_type == IP_TOS);
     ecn = (ecn_tp)((unsigned char)(*(uint32_t*)CMSG_DATA(cmptr)) & ECN_MASK);
 
@@ -273,12 +260,12 @@ int main(int argc, char **argv)
             data_msg.hton();  // swap byte order if needed
             ssize_t bytes_sent = sendto_ecn(sockfd, (char*)(&data_msg), packet_size, new_ecn, (SOCKADDR *)&server_addr, sizeof(server_addr));
             if (verbose)
-	        printf("s: %d,  %ld, %d, %d, %ld, %d, %d, %d, %d\n", now - ref_tm, pacing_rate, packet_window, packet_burst, packet_size, seqnr, inflight, inburst, nextSend - ref_tm);
-	    if (bytes_sent < 0 || ((size_tp) bytes_sent) != packet_size) {
+                printf("s: %d,  %ld, %d, %d, %ld, %d, %d, %d, %d\n",
+                           now - ref_tm, pacing_rate, packet_window, packet_burst, packet_size, seqnr, inflight, inburst, nextSend - ref_tm);
+            if (bytes_sent < 0 || ((size_tp) bytes_sent) != packet_size) {
                 perror("invalid data packet length sent");
                 exit(1);
             }
-            //printf("Infight %d, Inburst %d, nextSend %d\n", inflight, inburst, nextSend);
             inburst++;
             inflight++;
         }
@@ -298,9 +285,6 @@ int main(int argc, char **argv)
             socklen_t src_len = sizeof(src_addr);
 
             bytes_received = recvfrom_ecn_timeout(sockfd, receivebuffer, sizeof(receivebuffer), rcv_ecn, timeout, (SOCKADDR *)&src_addr, &src_len);
-	    //printf("Time diff: %d, TO: %d, B_recv: %ld\n",  pragueCC.Now() - now, timeout, bytes_received);
-            //printf("From:\t %s:%d\n", inet_ntoa(src_addr.sin_addr), ntohs(src_addr.sin_port));
-            //if ((bytes_received == -1) && (errno != EWOULDBLOCK) && (errno != EAGAIN)) {
             if (bytes_received == -1) {
                 perror("ERROR on recvfrom");
                 exit(1);
@@ -309,12 +293,13 @@ int main(int argc, char **argv)
         } while ((waitTimeout > now) && (bytes_received < 0));
         if (bytes_received >= ssize_t(sizeof(ack_msg))) {
             ack_msg.hton();
-	    pragueCC.PacketReceived(ack_msg.timestamp, ack_msg.echoed_timestamp);
-	    //printf("ack_msg.packets_received: %d\n", ack_msg.packets_received);
+            pragueCC.PacketReceived(ack_msg.timestamp, ack_msg.echoed_timestamp);
             pragueCC.ACKReceived(ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, seqnr, ack_msg.error_L4S, inflight);
             if (verbose)
-	        printf("r: %d, %d, %d, %d, %d, %d, %d, %d,%d\n", now - ref_tm, ack_msg.timestamp, ack_msg.echoed_timestamp, ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, seqnr, ack_msg.error_L4S, inflight);
-	}
+                printf("r: %d, %d, %d, %d, %d, %d, %d, %d, %d\n",
+                           now - ref_tm, ack_msg.timestamp, ack_msg.echoed_timestamp, ack_msg.packets_received,
+                           ack_msg.packets_CE, ack_msg.packets_lost, seqnr, ack_msg.error_L4S, inflight);
+        }
         else // timeout, reset state
             if (inflight >= packet_window)
                 pragueCC.ResetCCInfo();

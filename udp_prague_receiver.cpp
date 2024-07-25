@@ -155,13 +155,16 @@ ssize_t sendto_ecn(SOCKET sockfd, char *buf, size_t len, ecn_tp ecn, const SOCKA
 
 int main(int argc, char **argv)
 {
+    bool verbose = false;
     int rcv_port = 8080;
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "-p" && i + 1 < argc)
             rcv_port = atoi(argv[++i]);
+        else if (arg == "-v")
+            verbose = true;
         else {
-            perror("Usage: udp_prague_receiver -p <receiver port>");;
+            perror("Usage: udp_prague_receiver -p <receiver port> -v (for verbose prints)");
             return 1;
         }
     }
@@ -215,7 +218,6 @@ int main(int argc, char **argv)
         socklen_t client_len = sizeof(client_addr);
         ecn_tp rcv_ecn;
         ssize_t bytes_received = recvfrom_ecn_timeout(sockfd, receivebuffer, sizeof(receivebuffer), rcv_ecn, 0, (SOCKADDR *)&client_addr, &client_len);
-        //printf("From:\t %s:%d\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
 
         while (bytes_received == -1) {   // repeat if timeout or interrupted
             if (errno != EWOULDBLOCK && errno != EAGAIN) {
@@ -224,11 +226,13 @@ int main(int argc, char **argv)
             }
             bytes_received = recvfrom_ecn_timeout(sockfd, receivebuffer, sizeof(receivebuffer), rcv_ecn, 0, (SOCKADDR *)&client_addr, &client_len);
         }
-        //printf("UDP Prague receiving ECN %d with size %ld bytes from %s:%d.\n", rcv_ecn, bytes_received, inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
 
         // Extract the data message
         data_msg.hton();  // swap byte order
-        //printf("Get timestamp from sender: %d\t%d\n", data_msg.timestamp, data_msg.echoed_timestamp);
+        if (verbose) {
+            printf("r: %d, %d, %d, %d\n", data_msg.timestamp, data_msg.echoed_timestamp, data_msg.seq_nr, data_msg.timestamp - prev_tp);
+            prev_tp = data_msg.timestamp;
+        }
 
         // Pass the relevant data to the PragueCC object:
         pragueCC.PacketReceived(data_msg.timestamp, data_msg.echoed_timestamp);
@@ -239,11 +243,11 @@ int main(int argc, char **argv)
         pragueCC.GetTimeInfo(ack_msg.timestamp, ack_msg.echoed_timestamp, new_ecn);
         pragueCC.GetACKInfo(ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, ack_msg.error_L4S);
 
-        //printf("Send timestamp from receiverr: %d (diff= %d) with %d rcv_pkt\n", ack_msg.timestamp, data_msg.timestamp - prev_tp, ack_msg.packets_received);
-        prev_tp = data_msg.timestamp;
+        if (verbose)
+            printf("r: %d, %d, %d, %d, %d, %d\n",
+                       ack_msg.timestamp, ack_msg.echoed_timestamp, ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, ack_msg.error_L4S);
 
         ack_msg.hton();  // swap byte order if needed
-	//printf("ack_msg.packets_received: %d\n", ack_msg.packets_received);
         ssize_t bytes_sent = sendto_ecn(sockfd, (char*)(&ack_msg), sizeof(ack_msg), new_ecn, (SOCKADDR *)&client_addr, client_len);
         if (bytes_sent != sizeof(ack_msg)) {
             perror("invalid ack packet length sent");
