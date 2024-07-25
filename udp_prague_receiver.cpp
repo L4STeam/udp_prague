@@ -188,14 +188,14 @@ int main(int argc, char **argv)
         exit(1);
     }
 
-    #ifdef WIN32
-    #elif __linux__
+#ifdef WIN32
+#elif __linux__
     unsigned int set = 1;
     if (setsockopt(sockfd, IPPROTO_IP, IP_RECVTOS, &set, sizeof(set)) < 0) {
         perror("Could not set RECVTOS");
         exit(1);
     }
-    #endif
+#endif
 
     printf("UDP Prague receiver listening on port %d.\n", rcv_port);
 
@@ -239,10 +239,11 @@ int main(int argc, char **argv)
         pragueCC.GetTimeInfo(ack_msg.timestamp, ack_msg.echoed_timestamp, new_ecn);
         pragueCC.GetACKInfo(ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, ack_msg.error_L4S);
 
-        printf("Send timestamp from receiverr: %d (diff= %d) with %d rcv_pkt\n", ack_msg.timestamp, data_msg.timestamp - prev_tp, ack_msg.packets_received);
+        //printf("Send timestamp from receiverr: %d (diff= %d) with %d rcv_pkt\n", ack_msg.timestamp, data_msg.timestamp - prev_tp, ack_msg.packets_received);
         prev_tp = data_msg.timestamp;
 
         ack_msg.hton();  // swap byte order if needed
+	//printf("ack_msg.packets_received: %d\n", ack_msg.packets_received);
         ssize_t bytes_sent = sendto_ecn(sockfd, (char*)(&ack_msg), sizeof(ack_msg), new_ecn, (SOCKADDR *)&client_addr, client_len);
         if (bytes_sent != sizeof(ack_msg)) {
             perror("invalid ack packet length sent");

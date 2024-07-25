@@ -268,7 +268,7 @@ int main(int argc, char **argv)
                 perror("invalid data packet length sent");
                 exit(1);
             }
-            //printf("Sent %ld bytes, packet_size %ld size.", bytes_sent, packet_size);
+            //printf("Infight %d, Inburst %d, nextSend %d\n", inflight, inburst, nextSend);
             inburst++;
             inflight++;
             seqnr++;
@@ -289,7 +289,7 @@ int main(int argc, char **argv)
             socklen_t src_len = sizeof(src_addr);
 
             bytes_received = recvfrom_ecn_timeout(sockfd, receivebuffer, sizeof(receivebuffer), rcv_ecn, timeout, (SOCKADDR *)&src_addr, &src_len);
-	    printf("Time diff: %d, TO: %d, B_recv: %ld\n",  pragueCC.Now() - now, timeout, bytes_received);
+	    //printf("Time diff: %d, TO: %d, B_recv: %ld\n",  pragueCC.Now() - now, timeout, bytes_received);
             //printf("From:\t %s:%d\n", inet_ntoa(src_addr.sin_addr), ntohs(src_addr.sin_port));
             //if ((bytes_received == -1) && (errno != EWOULDBLOCK) && (errno != EAGAIN)) {
             if (bytes_received == -1) {
@@ -300,6 +300,8 @@ int main(int argc, char **argv)
         } while ((waitTimeout > now) && (bytes_received < 0));
         if (bytes_received >= ssize_t(sizeof(ack_msg))) {
             pragueCC.PacketReceived(ack_msg.timestamp, ack_msg.echoed_timestamp);
+	    ack_msg.hton();
+	    //printf("ack_msg.packets_received: %d\n", ack_msg.packets_received);
             pragueCC.ACKReceived(ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, seqnr, ack_msg.error_L4S, inflight);
         }
         else // timeout, reset state
