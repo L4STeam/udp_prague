@@ -255,11 +255,10 @@ int main(int argc, char **argv)
     time_tp ref_tm = nextSend;
     time_tp cnt_tm = nextSend;
     rate_tp Accbytes_sent = 0;
-    rate_tp Acc_rtts_recv = 0;
+    rate_tp Acc_rtts_data = 0;
     count_tp Packets_recv = 0;
     count_tp Pk_mark_recv = 0;
     count_tp Pk_lost_recv = 0;
-
     count_tp seqnr = 0;
     count_tp inflight = 0;
     rate_tp pacing_rate;
@@ -285,7 +284,7 @@ int main(int argc, char **argv)
             data_msg.hton();
             ssize_t bytes_sent = sendto_ecn(sockfd, (char*)(&data_msg), packet_size, new_ecn, (SOCKADDR *)&server_addr, sizeof(server_addr));
             if (verbose)
-                printf("s: %d,  %ld, %d, %d, %ld, %d, %d, %d, %d\n",
+                printf("s: %d, %ld, %d, %d, %ld, %d, %d, %d, %d\n",
                            now - ref_tm, pacing_rate, packet_window, packet_burst, packet_size, seqnr, inflight, inburst, nextSend - ref_tm);
             if (bytes_sent < 0 || ((size_tp) bytes_sent) != packet_size) {
                 perror("invalid data packet length sent");
@@ -319,7 +318,7 @@ int main(int argc, char **argv)
         } while ((waitTimeout > now) && (bytes_received < 0));
         if (bytes_received >= ssize_t(sizeof(ack_msg))) {
             ack_msg.hton();
-            Acc_rtts_recv += (now - ack_msg.echoed_timestamp);
+            Acc_rtts_data += (now - ack_msg.echoed_timestamp);
             pragueCC.PacketReceived(ack_msg.timestamp, ack_msg.echoed_timestamp);
             pragueCC.ACKReceived(ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, seqnr, ack_msg.error_L4S, inflight);
             if (verbose)
@@ -336,21 +335,21 @@ int main(int argc, char **argv)
         if (!quiet) {
             if (now - cnt_tm >= 1000000) {
                 float rate_send = 8.0f*Accbytes_sent / (now - cnt_tm);
-                float rtts_recv = (ack_msg.packets_received > Packets_recv) ? Acc_rtts_recv/(1000.0f * (ack_msg.packets_received - Packets_recv)) : 0.0f;
+                float rtts_data = (ack_msg.packets_received > Packets_recv) ? Acc_rtts_data/(1000.0f * (ack_msg.packets_received - Packets_recv)) : 0.0f;
                 float mark_prob = (ack_msg.packets_received > Packets_recv) ?
                                    100.0f*(ack_msg.packets_CE - Pk_mark_recv)/(ack_msg.packets_received - Packets_recv) : 0.0f;
                 float loss_prob = (ack_msg.packets_received > Packets_recv) ?
                                    100.0f*(ack_msg.packets_lost - Pk_lost_recv)/(ack_msg.packets_received - Packets_recv) : 0.0f;
-                printf("s: %.2f sec, %.3f Mbps, Avg RTT: %.3f ms, Mark: %.2f%%(%d/%d), Lost: %.2f%%(%d/%d)\n",
-                        (now - ref_tm)/1000000.0f, rate_send, rtts_recv,
+                printf("[SENDER]: %.2f sec, %.3f Mbps, Data RTT: %.3f ms, Mark: %.2f%%(%d/%d), Lost: %.2f%%(%d/%d)\n",
+                        (now - ref_tm)/1000000.0f, rate_send, rtts_data,
                         mark_prob, ack_msg.packets_CE - Pk_mark_recv, ack_msg.packets_received - Packets_recv,
                         loss_prob, ack_msg.packets_lost - Pk_lost_recv, ack_msg.packets_received - Packets_recv);
                 Accbytes_sent = 0;
-                 Acc_rtts_recv = 0;
-                cnt_tm = cnt_tm + 1000000;
+                Acc_rtts_data = 0;
                 Packets_recv = ack_msg.packets_received;
                 Pk_mark_recv = ack_msg.packets_CE;
                 Pk_lost_recv = ack_msg.packets_lost;
+                cnt_tm = cnt_tm + 1000000;
             }
         }
     }

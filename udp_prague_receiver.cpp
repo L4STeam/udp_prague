@@ -238,6 +238,9 @@ int main(int argc, char **argv)
     time_tp ref_tm = 0;
     time_tp data_tm = 0;
     rate_tp Accbytes_recv = 0;
+    rate_tp Accbytes_send = 0;
+    rate_tp Acc_rtts_acks = 0;
+    count_tp Acc_pkt_acks = 0;
 
     if (verbose) {
         printf("r: timestamp, echoed_timestamp, seqnr, bytes_received, time_diff\n");
@@ -257,9 +260,12 @@ int main(int argc, char **argv)
             }
             bytes_received = recvfrom_ecn_timeout(sockfd, receivebuffer, sizeof(receivebuffer), rcv_ecn, 0, (SOCKADDR *)&client_addr, &client_len);
         }
-        Accbytes_recv+=bytes_received;
+
         // Extract the data message
         data_msg.hton();  // swap byte order
+        Accbytes_recv += bytes_received;
+        Acc_rtts_acks += (data_msg.timestamp == data_msg.echoed_timestamp) ? 0 : (pragueCC.Now() - data_msg.echoed_timestamp);
+        Acc_pkt_acks += 1;
         if (verbose) {
             printf("r: %d, %d, %d, %ld, %d\n", data_msg.timestamp, data_msg.echoed_timestamp, data_msg.seq_nr, bytes_received, data_msg.timestamp - data_tm);
             data_tm = data_msg.timestamp;
@@ -286,6 +292,7 @@ int main(int argc, char **argv)
             perror("invalid ack packet length sent");
             exit(1);
         }
+        Accbytes_send += bytes_sent;
         if (!quiet) {
             time_tp now = pragueCC.Now();
             if (ref_tm == 0) {
@@ -293,8 +300,14 @@ int main(int argc, char **argv)
                 data_tm = now;
             }
             if (now - data_tm >= 1000000) {
-                printf("r: %.2f sec, %.3f Mbps\n", (now - ref_tm)/1000000.0f, 8.0f*Accbytes_recv / (now - data_tm));
+                float rate_recv = 8.0f*Accbytes_recv / (now - data_tm);
+                float rate_send = 8.0f*Accbytes_send / (now - data_tm);
+                float rtts_acks = (Acc_pkt_acks > 0) ? Acc_rtts_acks/(1000.0f * Acc_pkt_acks) : 0.0f;
+                printf("[RECVER] %.2f sec, %.3f Mbps, Acks rate: %.3f Mbps, Acks RTT: %.3f ms\n", (now - ref_tm)/1000000.0f, rate_recv, rate_send, rtts_acks);
                 Accbytes_recv = 0;
+                Accbytes_send = 0;
+                Acc_rtts_acks = 0;
+                Acc_pkt_acks = 0;
                 data_tm = data_tm + 1000000;
             }
         }
