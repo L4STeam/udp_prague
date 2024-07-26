@@ -47,7 +47,7 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     if ((m_packets_received - packets_received > 0) || (m_packets_CE - packets_CE > 0)) // this is an older or invalid ACK (these counters can't go down)
         return false;
 
-    time_tp pacing_interval = m_packet_size * 1000000 * m_burst_size / m_pacing_rate; // calculate the max expected rtt from pacing
+    time_tp pacing_interval = m_packet_size * 1000000 * m_packet_burst / m_pacing_rate; // calculate the max expected rtt from pacing
     time_tp srtt = (m_srtt > pacing_interval) ? m_srtt : pacing_interval; // take into account the pacing delay
     if (m_cc_state == cs_init)  // initialize the window with the initial pacing rate
     {
