@@ -28,6 +28,7 @@ struct PragueState {
         time_tp   m_frame_budget;
     // both-end variables
         time_tp   m_ts_remote;     // to keep the frozen timestamp from the peer, and echo it back defrosted
+        time_tp   m_rtt;           // last reported rtt (only for stats)
         time_tp   m_srtt;          // our own measured and smoothed RTT (smoothing factor = 1/8)
         time_tp   m_vrtt;          // our own virtual RTT = max(srtt, 25ms)
     // receiver-end variables (to be echoed to sender)
@@ -92,6 +93,7 @@ class PragueCC: private PragueState {
                 m_frame_budget = m_frame_interval;
         // both end variables
             m_ts_remote = 0;    // to keep the frozen timestamp from the peer, and echo it back defrosted
+            m_rtt = 0;          // last reported rtt (only for stats)
             m_srtt = 0;         // our own measured and smoothed RTT (smoothing factor = 1/8)
             m_vrtt = 0;         // our own virtual RTT = max(srtt, 25ms)
         // receiver end variables (to be echoed to sender)
