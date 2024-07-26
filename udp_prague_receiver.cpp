@@ -102,24 +102,31 @@ ssize_t recvfrom_ecn_timeout(int sockfd, char *buf, size_t len, ecn_tp &ecn, tim
     rcv_msg.msg_control = ctrl_msg;
     rcv_msg.msg_controllen = sizeof(ctrl_msg);
 
-    struct timeval tv_in;
-    tv_in.tv_sec =  ((uint32_t) timeout) / 1000000;
-    tv_in.tv_usec = ((uint32_t) timeout) % 1000000;
-    fd_set recvsds;
-    FD_ZERO(&recvsds);
-    FD_SET((unsigned int) sockfd, &recvsds);
-    int rv = select(sockfd + 1, &recvsds, NULL, NULL, &tv_in);
-    if (rv < 0) {
-        // select error
-        return -1;
-    } else if (rv == 0)  {
-        // Timeout
-        return 0;
+    if (timeout > 0) {
+        struct timeval tv_in;
+        tv_in.tv_sec =  ((uint32_t) timeout) / 1000000;
+        tv_in.tv_usec = ((uint32_t) timeout) % 1000000;
+        fd_set recvsds;
+        FD_ZERO(&recvsds);
+        FD_SET((unsigned int) sockfd, &recvsds);
+        int rv = select(sockfd + 1, &recvsds, NULL, NULL, &tv_in);
+        if (rv < 0) {
+            // select error
+            return -1;
+        } else if (rv == 0)  {
+            // Timeout
+            return 0;
+        } else {
+            // socket has something to read
+            if ((r = recvmsg(sockfd, &rcv_msg, 0)) < 0) {
+                perror("Fail to recv UDP message from socket\n");
+                return -1;
+            }
+        }
     } else {
-        // socket has something to read
         if ((r = recvmsg(sockfd, &rcv_msg, 0)) < 0) {
             perror("Fail to recv UDP message from socket\n");
-            return -1;
+            return r;
         }
     }
     struct cmsghdr *cmptr = CMSG_FIRSTHDR(&rcv_msg);

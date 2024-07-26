@@ -103,24 +103,31 @@ ssize_t recvfrom_ecn_timeout(int sockfd, char *buf, size_t len, ecn_tp &ecn, tim
     rcv_msg.msg_control = ctrl_msg;
     rcv_msg.msg_controllen = sizeof(ctrl_msg);
 
-    struct timeval tv_in;
-    tv_in.tv_sec =  ((uint32_t) timeout) / 1000000;
-    tv_in.tv_usec = ((uint32_t) timeout) % 1000000;
-    fd_set recvsds;
-    FD_ZERO(&recvsds);
-    FD_SET((unsigned int) sockfd, &recvsds);
-    int rv = select(sockfd + 1, &recvsds, NULL, NULL, &tv_in);
-    if (rv < 0) {
-        // select error
-        return -1;
-    } else if (rv == 0)  {
-        // Timeout
-        return 0;
+    if (timeout > 0) {
+        struct timeval tv_in;
+        tv_in.tv_sec =  ((uint32_t) timeout) / 1000000;
+        tv_in.tv_usec = ((uint32_t) timeout) % 1000000;
+        fd_set recvsds;
+        FD_ZERO(&recvsds);
+        FD_SET((unsigned int) sockfd, &recvsds);
+        int rv = select(sockfd + 1, &recvsds, NULL, NULL, &tv_in);
+        if (rv < 0) {
+            // select error
+            return -1;
+        } else if (rv == 0)  {
+            // Timeout
+            return 0;
+        } else {
+            // socket has something to read
+            if ((r = recvmsg(sockfd, &rcv_msg, 0)) < 0) {
+                perror("Fail to recv UDP message from socket\n");
+                return -1;
+            }
+        }
     } else {
-        // socket has something to read
         if ((r = recvmsg(sockfd, &rcv_msg, 0)) < 0) {
             perror("Fail to recv UDP message from socket\n");
-            return -1;
+            return r;
         }
     }
     struct cmsghdr *cmptr = CMSG_FIRSTHDR(&rcv_msg);
@@ -170,6 +177,8 @@ ssize_t sendto_ecn(SOCKET sockfd, char *buf, size_t len, ecn_tp ecn, SOCKADDR *d
 
 int main(int argc, char **argv)
 {
+#ifdef WIN32
+#elif __linux__
     if (geteuid() == 0) {
         struct sched_param sp;
         sp.sched_priority = sched_get_priority_max(SCHED_RR);
@@ -178,7 +187,9 @@ int main(int argc, char **argv)
             perror("Client set scheduler");
         }
     }
+#endif
 
+    // Argument parser
     bool verbose = false;
     bool quiet = false;
     const char *rcv_addr = "127.0.0.1";
@@ -217,14 +228,14 @@ int main(int argc, char **argv)
     server_addr.sin_addr.S_ADDR = inet_addr(rcv_addr);
     server_addr.sin_port = htons(rcv_port);
 
-    #ifdef WIN32
-    #elif __linux__
+#ifdef WIN32
+#elif __linux__
     unsigned int set = 1;
     if (setsockopt(sockfd, IPPROTO_IP, IP_RECVTOS, &set, sizeof(set)) < 0) {
         printf("Could not set RECVTOS");
         exit(1);
     }
-    #endif
+#endif
 
     char receivebuffer[BUFFER_SIZE];
     uint32_t sendbuffer[BUFFER_SIZE/4];
@@ -244,6 +255,11 @@ int main(int argc, char **argv)
     time_tp ref_tm = nextSend;
     time_tp cnt_tm = nextSend;
     rate_tp Accbytes_sent = 0;
+    rate_tp Acc_rtts_recv = 0;
+    count_tp Packets_recv = 0;
+    count_tp Pk_mark_recv = 0;
+    count_tp Pk_lost_recv = 0;
+
     count_tp seqnr = 0;
     count_tp inflight = 0;
     rate_tp pacing_rate;
@@ -266,7 +282,7 @@ int main(int argc, char **argv)
             if (startSend == 0)
                 startSend = now;
             data_msg.seq_nr = ++seqnr;
-            data_msg.hton();  // swap byte order if needed
+            data_msg.hton();
             ssize_t bytes_sent = sendto_ecn(sockfd, (char*)(&data_msg), packet_size, new_ecn, (SOCKADDR *)&server_addr, sizeof(server_addr));
             if (verbose)
                 printf("s: %d,  %ld, %d, %d, %ld, %d, %d, %d, %d\n",
@@ -303,6 +319,7 @@ int main(int argc, char **argv)
         } while ((waitTimeout > now) && (bytes_received < 0));
         if (bytes_received >= ssize_t(sizeof(ack_msg))) {
             ack_msg.hton();
+            Acc_rtts_recv += (now - ack_msg.echoed_timestamp);
             pragueCC.PacketReceived(ack_msg.timestamp, ack_msg.echoed_timestamp);
             pragueCC.ACKReceived(ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, seqnr, ack_msg.error_L4S, inflight);
             if (verbose)
@@ -314,11 +331,26 @@ int main(int argc, char **argv)
             if (inflight >= packet_window)
                 pragueCC.ResetCCInfo();
         pragueCC.GetCCInfo(pacing_rate, packet_window, packet_burst, packet_size);
+
+        // Display sender side info
         if (!quiet) {
             if (now - cnt_tm >= 1000000) {
-                printf("s: %.2f sec, %.3f Mbps\n", (now - ref_tm)/1000000.0f, 8.0f*Accbytes_sent / (now - cnt_tm));
+                float rate_send = 8.0f*Accbytes_sent / (now - cnt_tm);
+                float rtts_recv = (ack_msg.packets_received > Packets_recv) ? Acc_rtts_recv/(1000.0f * (ack_msg.packets_received - Packets_recv)) : 0.0f;
+                float mark_prob = (ack_msg.packets_received > Packets_recv) ?
+                                   100.0f*(ack_msg.packets_CE - Pk_mark_recv)/(ack_msg.packets_received - Packets_recv) : 0.0f;
+                float loss_prob = (ack_msg.packets_received > Packets_recv) ?
+                                   100.0f*(ack_msg.packets_lost - Pk_lost_recv)/(ack_msg.packets_received - Packets_recv) : 0.0f;
+                printf("s: %.2f sec, %.3f Mbps, Avg RTT: %.3f ms, Mark: %.2f%%(%d/%d), Lost: %.2f%%(%d/%d)\n",
+                        (now - ref_tm)/1000000.0f, rate_send, rtts_recv,
+                        mark_prob, ack_msg.packets_CE - Pk_mark_recv, ack_msg.packets_received - Packets_recv,
+                        loss_prob, ack_msg.packets_lost - Pk_lost_recv, ack_msg.packets_received - Packets_recv);
                 Accbytes_sent = 0;
+                 Acc_rtts_recv = 0;
                 cnt_tm = cnt_tm + 1000000;
+                Packets_recv = ack_msg.packets_received;
+                Pk_mark_recv = ack_msg.packets_CE;
+                Pk_lost_recv = ack_msg.packets_lost;
             }
         }
     }
