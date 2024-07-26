@@ -304,7 +304,7 @@ int main(int argc, char **argv)
             pragueCC.ACKReceived(ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, seqnr, ack_msg.error_L4S, inflight);
             if (verbose)
                 printf("r: %d, %d, %d, %d, %d, %d, %d, %d, %d\n",
-                           now - ref_tm, ack_msg.timestamp, ack_msg.echoed_timestamp, ack_msg.packets_received,
+                           now - ref_tm, ack_msg.timestamp - ref_tm, ack_msg.echoed_timestamp - ref_tm, ack_msg.packets_received,
                            ack_msg.packets_CE, ack_msg.packets_lost, seqnr, ack_msg.error_L4S, inflight);
         }
         else // timeout, reset state

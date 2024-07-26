@@ -23,8 +23,8 @@ bool PragueCC::PacketReceived(         // call this when a packet is received fr
     if ((m_cc_state != cs_init) && (m_r_prev_ts - timestamp > 0)) // is this an older timestamp?
         return false;
     time_tp ts = Now();
-    //m_ts_remote = ts - timestamp;  // freeze the remote timestamp
-    m_ts_remote = timestamp;  // do not freeze the remote timestamp
+    m_ts_remote = ts - timestamp;  // freeze the remote timestamp
+    //m_ts_remote = timestamp;  // do not freeze the remote timestamp
     m_rtt = ts - echoed_timestamp;
     if (m_cc_state != cs_init)
         m_srtt += (m_rtt - m_srtt) >> 3;
@@ -47,8 +47,9 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     if ((m_packets_received - packets_received > 0) || (m_packets_CE - packets_CE > 0)) // this is an older or invalid ACK (these counters can't go down)
         return false;
 
-    time_tp pacing_interval = m_packet_size * 1000000 * m_burst_size / m_pacing_rate; // calculate the max expected rtt from pacing
-    time_tp srtt = (m_srtt > pacing_interval) ? m_srtt : pacing_interval; // take into account the pacing delay
+    //time_tp pacing_interval = m_packet_size * 1000000 / m_pacing_rate; // calculate the max expected rtt from pacing
+    //printf("FrW: %ld, SRTT: %d, Pacing interval: %ld, packet_size: %ld, packet_burst: %d, pacing_rate: %ld\n", m_fractional_window, m_srtt, m_packet_size * 1000000 * m_packet_burst / m_pacing_rate, m_packet_size, m_packet_burst, m_pacing_rate);
+    time_tp srtt = (m_srtt);// > pacing_interval) ? m_srtt : pacing_interval; // take into account the pacing delay
     if (m_cc_state == cs_init)  // initialize the window with the initial pacing rate
     {
         m_fractional_window = srtt * m_pacing_rate;
@@ -206,8 +207,8 @@ void PragueCC::GetTimeInfo(          // when the any-app needs to send a packet
     ecn_tp &ip_ecn)
 {
     timestamp = Now();
-    //echoed_timestamp = timestamp - m_ts_remote;  // if frozen
-    echoed_timestamp = m_ts_remote;  // if not frozen
+    echoed_timestamp = timestamp - m_ts_remote;  // if frozen
+    //echoed_timestamp = m_ts_remote;  // if not frozen
     if (m_error_L4S == true)
     {
         ip_ecn = ecn_not_ect;
