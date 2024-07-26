@@ -102,12 +102,27 @@ ssize_t recvfrom_ecn_timeout(int sockfd, char *buf, size_t len, ecn_tp &ecn, tim
     rcv_msg.msg_control = ctrl_msg;
     rcv_msg.msg_controllen = sizeof(ctrl_msg);
 
-    if ((r = recvmsg(sockfd, &rcv_msg, 0)) < 0)
-    {
-        perror("Fail to recv UDP message from socket\n");
+    struct timeval tv_in;
+    tv_in.tv_sec =  ((uint32_t) timeout) / 1000000;
+    tv_in.tv_usec = ((uint32_t) timeout) % 1000000;
+    fd_set recvsds;
+    FD_ZERO(&recvsds);
+    FD_SET((unsigned int) sockfd, &recvsds);
+    int rv = select(sockfd + 1, &recvsds, NULL, NULL, &tv_in);
+    if (rv < 0) {
+        // select error
         return -1;
+    } else if (rv == 0)  {
+        // Timeout
+        return 0;
+    } else {
+        // socket has something to read
+        if ((r = recvmsg(sockfd, &rcv_msg, 0)) < 0) {
+            perror("Fail to recv UDP message from socket\n");
+            return -1;
+        }
     }
-    auto cmptr = CMSG_FIRSTHDR(&rcv_msg);
+    struct cmsghdr *cmptr = CMSG_FIRSTHDR(&rcv_msg);
     assert(cmptr->cmsg_level == IPPROTO_IP && cmptr->cmsg_type == IP_TOS);
     ecn = (ecn_tp)((unsigned char)(*(uint32_t*)CMSG_DATA(cmptr)) & ECN_MASK);
 
@@ -225,7 +240,7 @@ int main(int argc, char **argv)
         // Wait for an incoming data message
         SOCKADDR_IN client_addr;
         socklen_t client_len = sizeof(client_addr);
-        ecn_tp rcv_ecn;
+        ecn_tp rcv_ecn = ecn_not_ect;
         ssize_t bytes_received = recvfrom_ecn_timeout(sockfd, receivebuffer, sizeof(receivebuffer), rcv_ecn, 0, (SOCKADDR *)&client_addr, &client_len);
 
         while (bytes_received == -1) {   // repeat if timeout or interrupted
@@ -268,8 +283,8 @@ int main(int argc, char **argv)
             time_tp now = pragueCC.Now();
             if (ref_tm == 0) {
                 ref_tm = now;
-		data_tm = now;
-	    }
+                data_tm = now;
+            }
             if (now - data_tm >= 1000000) {
                 printf("r: %.2f sec, %.3f Mbps\n", (now - ref_tm)/1000000.0f, 8.0f*Accbytes_recv / (now - data_tm));
                 Accbytes_recv = 0;

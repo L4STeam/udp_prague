@@ -16,10 +16,10 @@ lib_prague: $(SRC) $(HEADERS) Makefile
 	$(AR) rcs libprague.a libprague.o
 
 udp_prague_receiver: udp_prague_receiver.cpp $(HEADERS) Makefile lib_prague
-	$(CPP) udp_prague_receiver.cpp -L. -lprague --std=c++11 -pthread -O3 -o $@
+	$(CPP) udp_prague_receiver.cpp -L. -lprague --std=c++11 -pthread -O3 -Wall -Wextra -o $@
 
 udp_prague_sender: udp_prague_sender.cpp $(HEADERS) Makefile lib_prague
-	$(CPP) udp_prague_sender.cpp -L. -lprague --std=c++11 -pthread -O3 -o $@
+	$(CPP) udp_prague_sender.cpp -L. -lprague --std=c++11 -pthread -O3 -Wall -Wextra -o $@
 
 clean:
 	rm -rf udp_prague_receiver udp_prague_sender *.a *.o

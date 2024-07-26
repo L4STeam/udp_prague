@@ -10,6 +10,7 @@
 #elif __linux__
 #include <cassert>
 #include <string.h>
+#include <unistd.h>
 #include <arpa/inet.h>
 #include <netinet/ip.h>
 #endif
@@ -169,11 +170,13 @@ ssize_t sendto_ecn(SOCKET sockfd, char *buf, size_t len, ecn_tp ecn, SOCKADDR *d
 
 int main(int argc, char **argv)
 {
-    struct sched_param sp;
-    sp.sched_priority = sched_get_priority_max(SCHED_RR);
-    // SCHED_OTHER, SCHED_FIFO, SCHED_RR
-    if (sched_setscheduler(0, SCHED_RR, &sp) < 0) {
-        perror("Client set scheduler");
+    if (geteuid() == 0) {
+        struct sched_param sp;
+        sp.sched_priority = sched_get_priority_max(SCHED_RR);
+        // SCHED_OTHER, SCHED_FIFO, SCHED_RR
+        if (sched_setscheduler(0, SCHED_RR, &sp) < 0) {
+            perror("Client set scheduler");
+        }
     }
 
     bool verbose = false;
