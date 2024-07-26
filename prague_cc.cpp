@@ -25,10 +25,11 @@ bool PragueCC::PacketReceived(         // call this when a packet is received fr
     time_tp ts = Now();
     //m_ts_remote = ts - timestamp;  // freeze the remote timestamp
     m_ts_remote = timestamp;  // do not freeze the remote timestamp
+    m_rtt = ts - echoed_timestamp;
     if (m_cc_state != cs_init)
-        m_srtt += (ts - echoed_timestamp - m_srtt) >> 3;
+        m_srtt += (m_rtt - m_srtt) >> 3;
     else
-        m_srtt = ts - echoed_timestamp;
+        m_srtt = m_rtt;
     // m_vrtt = std::max(m_srtt, REF_RTT);
     m_vrtt = (m_srtt > REF_RTT) ? m_srtt : REF_RTT;
     m_r_prev_ts = timestamp;
@@ -46,9 +47,11 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     if ((m_packets_received - packets_received > 0) || (m_packets_CE - packets_CE > 0)) // this is an older or invalid ACK (these counters can't go down)
         return false;
 
+    time_tp pacing_interval = m_packet_size * 1000000 * m_burst_size / m_pacing_rate; // calculate the max expected rtt from pacing
+    time_tp srtt = (m_srtt > pacing_interval) ? m_srtt : pacing_interval; // take into account the pacing delay
     if (m_cc_state == cs_init)  // initialize the window with the initial pacing rate
     {
-        m_fractional_window = m_srtt * m_pacing_rate;
+        m_fractional_window = srtt * m_pacing_rate;
         m_cc_state = cs_cong_avoid;
     }
     time_tp ts = Now();
@@ -91,8 +94,8 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     if ((m_cc_state != cs_in_loss) && (acks > 0))
     {   // W[p] = W + acks / W * (srrt/vrtt)², but in the right order to not lose precision
         // W[µB] = W + acks * mtu² * 1000000² / W * (srrt/vrtt)²
-        //m_fractional_window += acks * m_packet_size * m_srtt * 1000000 / m_vrtt * m_packet_size * m_srtt * 1000000 / m_vrtt / m_fractional_window;
-        m_fractional_window += acks * m_packet_size * m_srtt * 1000000 / m_vrtt * m_packet_size * m_srtt / m_vrtt * 1000000 / m_fractional_window;
+        // correct order to prevent loss of precision 
+        m_fractional_window += acks * m_packet_size * srtt * 1000000 / m_vrtt * m_packet_size * srtt / m_vrtt * 1000000 / m_fractional_window;
     }
 
     // Clear the in_cwr state if in_cwr and a real and vrtual rtt are passed
@@ -108,7 +111,7 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     }
 
     // Updating dependant parameters
-    m_pacing_rate = m_fractional_window / m_srtt;  // in B/s
+    m_pacing_rate = m_fractional_window / srtt;  // in B/s
     if (m_pacing_rate < m_min_rate)
         m_pacing_rate = m_min_rate;
     if (m_pacing_rate > m_max_rate)
