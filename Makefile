@@ -4,7 +4,7 @@
 SRC=prague_cc.cpp
 HEADERS=prague_cc.h
 CPPFLAGS=-std=c++11 -O3
-WARN=
+WARN=-Wall -Wextra
 
 CPP=g++
 AR=ar

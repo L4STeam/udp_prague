@@ -6,6 +6,12 @@ const uint8_t PROB_SHIFT = 20;             // enough as max value that can contr
 const prob_tp MAX_PROB = 1 << PROB_SHIFT;  // with r [Mbps] = 1/p - 1 = 2^20 Mbps = 1Tbps
 const uint8_t ALPHA_SHIFT = 4;             // >> 4 is divide by 16
 
+template <typename ...Args>
+void UNUSED(Args&& ...args)
+{
+    (void)(sizeof...(args));
+}
+
 time_tp PragueCC::Now() // TODO: microsecond to time_tp
 {
     // Check if now==0; skip this value used to check uninitialized timepstamp
@@ -69,7 +75,6 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
         m_alpha_packets_received = packets_received;
         m_alpha_ts = ts;
     }
-    // [TODO] Handle lost-after-lost and partial-recovery case?
     // Undo that window reduction if the lost count is again down to the one that caused a reduction (reordered iso loss)
     if (m_lost_window && (m_loss_packets_lost - packets_lost >= 0)) {
         m_fractional_window += m_lost_window;  // add the reduction to the window again
@@ -147,6 +152,7 @@ bool PragueCC::FrameACKReceived(   // call this when a frame ACK is received fro
     count_tp packets_lost,         // echoed lost counter
     bool error_L4S)                // receiver found a bleached/error ECN; stop using L4S_id on the sending packets!
 {
+    UNUSED(packets_received, packets_CE, packets_lost, error_L4S);
     return true;
 }
 
@@ -253,5 +259,5 @@ void PragueCC::GetCCInfoVideo( // when the sending app needs to send a frame
     count_tp &packet_burst,    // number of packets that can be paced at once (<250µs)
     size_tp &packet_size)      // the packet size to transmit
 {
-    
+    UNUSED(pacing_rate, frame_size, frame_window, packet_burst, packet_size);
 }
