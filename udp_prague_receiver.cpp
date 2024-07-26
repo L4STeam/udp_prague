@@ -156,15 +156,19 @@ ssize_t sendto_ecn(SOCKET sockfd, char *buf, size_t len, ecn_tp ecn, const SOCKA
 int main(int argc, char **argv)
 {
     bool verbose = false;
+    bool quiet = false;
     int rcv_port = 8080;
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
-        if (arg == "-p" && i + 1 < argc)
+        if (arg == "-p" && i + 1 < argc) {
             rcv_port = atoi(argv[++i]);
-        else if (arg == "-v")
+        } else if (arg == "-v") {
             verbose = true;
-        else {
-            perror("Usage: udp_prague_receiver -p <receiver port> -v (for verbose prints)");
+            quiet = true;
+        } else if (arg == "-q") {
+            quiet = true;
+        } else {
+            perror("Usage: udp_prague_receiver -p <receiver port> -v (for verbose prints) -q (for quiet)");
             return 1;
         }
     }
@@ -209,9 +213,14 @@ int main(int argc, char **argv)
 
     // create a PragueCC object. No parameters needed if only ACKs are sent
     PragueCC pragueCC;
-    time_tp prev_tp = 0;
+    time_tp ref_tm = 0;
+    time_tp data_tm = 0;
+    rate_tp Accbytes_recv = 0;
 
-    // Receive data from client
+    if (verbose) {
+        printf("r: timestamp, echoed_timestamp, seqnr, bytes_received, time_diff\n");
+        printf("s: timestamp, echoed_timestamp, packets_received, packets_CE, packets_lost, seqnr, error_L4S\n");
+    }
     while (true) {
         // Wait for an incoming data message
         SOCKADDR_IN client_addr;
@@ -226,12 +235,12 @@ int main(int argc, char **argv)
             }
             bytes_received = recvfrom_ecn_timeout(sockfd, receivebuffer, sizeof(receivebuffer), rcv_ecn, 0, (SOCKADDR *)&client_addr, &client_len);
         }
-
+        Accbytes_recv+=bytes_received;
         // Extract the data message
         data_msg.hton();  // swap byte order
         if (verbose) {
-            printf("r: %d, %d, %d, %d\n", data_msg.timestamp, data_msg.echoed_timestamp, data_msg.seq_nr, data_msg.timestamp - prev_tp);
-            prev_tp = data_msg.timestamp;
+            printf("r: %d, %d, %d, %ld, %d\n", data_msg.timestamp, data_msg.echoed_timestamp, data_msg.seq_nr, bytes_received, data_msg.timestamp - data_tm);
+            data_tm = data_msg.timestamp;
         }
 
         // Pass the relevant data to the PragueCC object:
@@ -243,15 +252,29 @@ int main(int argc, char **argv)
         pragueCC.GetTimeInfo(ack_msg.timestamp, ack_msg.echoed_timestamp, new_ecn);
         pragueCC.GetACKInfo(ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, ack_msg.error_L4S);
 
-        if (verbose)
-            printf("r: %d, %d, %d, %d, %d, %d\n",
-                       ack_msg.timestamp, ack_msg.echoed_timestamp, ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, ack_msg.error_L4S);
+        if (verbose) {
+            printf("s: %d, %d, %d, %d, %d, %d\n",
+                       ack_msg.timestamp, ack_msg.echoed_timestamp, ack_msg.packets_received, 
+                       ack_msg.packets_CE, ack_msg.packets_lost, ack_msg.error_L4S);
+        }
 
         ack_msg.hton();  // swap byte order if needed
         ssize_t bytes_sent = sendto_ecn(sockfd, (char*)(&ack_msg), sizeof(ack_msg), new_ecn, (SOCKADDR *)&client_addr, client_len);
         if (bytes_sent != sizeof(ack_msg)) {
             perror("invalid ack packet length sent");
             exit(1);
+        }
+        if (!quiet) {
+            time_tp now = pragueCC.Now();
+            if (ref_tm == 0) {
+                ref_tm = now;
+		data_tm = now;
+	    }
+            if (now - data_tm >= 1000000) {
+                printf("r: %.2f sec, %.3f Mbps\n", (now - ref_tm)/1000000.0f, 8.0f*Accbytes_recv / (now - data_tm));
+                Accbytes_recv = 0;
+                data_tm = data_tm + 1000000;
+            }
         }
     }
 }

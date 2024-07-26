@@ -177,21 +177,25 @@ int main(int argc, char **argv)
     }
 
     bool verbose = false;
+    bool quiet = false;
     const char *rcv_addr = "127.0.0.1";
     uint32_t rcv_port = 8080;
     size_tp max_pkt = 1400;
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
-        if (arg == "-a" && i + 1 < argc)
+        if (arg == "-a" && i + 1 < argc) {
             rcv_addr = argv[++i];
-        else if (arg == "-p" && i + 1 < argc)
+        } else if (arg == "-p" && i + 1 < argc) {
             rcv_port = atoi(argv[++i]);
-        else if (arg == "-m" && i + 1 < argc)
+        } else if (arg == "-m" && i + 1 < argc) {
             max_pkt = atoi(argv[++i]);
-        else if (arg == "-v")
+        } else if (arg == "-v") {
             verbose = true;
-        else {
-            perror("Usage: udp_prague_receiver -a <receiver address> -p <receiver port> -m <max packet length> -v (for verbose prints)");;
+            quiet = true;
+        } else if (arg == "-q") {
+            quiet = true;
+        } else {
+            perror("Usage: udp_prague_receiver -a <receiver address> -p <receiver port> -m <max packet length> -v (for verbose prints) -q (quiet)");;
             return 1;
         }
     }
@@ -235,6 +239,8 @@ int main(int argc, char **argv)
 
     time_tp nextSend = pragueCC.Now();
     time_tp ref_tm = nextSend;
+    time_tp cnt_tm = nextSend;
+    rate_tp Accbytes_sent = 0;
     count_tp seqnr = 0;
     count_tp inflight = 0;
     rate_tp pacing_rate;
@@ -266,6 +272,7 @@ int main(int argc, char **argv)
                 perror("invalid data packet length sent");
                 exit(1);
             }
+            Accbytes_sent+=bytes_sent;
             inburst++;
             inflight++;
         }
@@ -304,5 +311,12 @@ int main(int argc, char **argv)
             if (inflight >= packet_window)
                 pragueCC.ResetCCInfo();
         pragueCC.GetCCInfo(pacing_rate, packet_window, packet_burst, packet_size);
+        if (!quiet) {
+            if (now - cnt_tm >= 1000000) {
+                printf("s: %.2f sec, %.3f Mbps\n", (now - ref_tm)/1000000.0f, 8.0f*Accbytes_sent / (now - cnt_tm));
+                Accbytes_sent = 0;
+                cnt_tm = cnt_tm + 1000000;
+            }
+        }
     }
 }
