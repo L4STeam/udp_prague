@@ -2,18 +2,8 @@
 // An example of a (dummy data) UDP receiver that needs to send ACKs for a congestion controlled UDP sender
 //
 
-#ifdef WIN32
-#include <iostream>
-#include <winsock2.h>
-#elif __linux__
-#include <cassert>
-#include <string.h>
-#include <unistd.h>
-#include <netinet/ip.h>
-#include <arpa/inet.h>
-#endif
-
 #include "prague_cc.h"
+#include "udpsocket.h"
 
 #define BUFFER_SIZE 8192       // in bytes (depending on MTU) 
 #define ECN_MASK ecn_ce
@@ -49,140 +39,17 @@ struct ackmessage_t {
 };
 #pragma pack(pop)
 
-#ifdef WIN32
-WSADATA wsaData;
-typedef int socklen_t;
-typedef int ssize_t;
-#define S_ADDR S_un.S_addr
-#elif __linux__
-typedef int SOCKET;
-typedef struct sockaddr_in SOCKADDR_IN;
-typedef struct sockaddr SOCKADDR;
-#define S_ADDR s_addr
-#define closesocket close
-#endif
-
-void initsocks()
-{
-#ifdef WIN32
-    // Initialize Winsock
-    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
-        perror("WSAStartup failed.\n");
-        exit(1);
-    }
-#endif
-}
-
-void cleanupsocks()
-{
-#ifdef WIN32
-    WSACleanup();
-#endif
-}
-
-ecn_tp current_ecn = ecn_not_ect;
-
-ssize_t recvfrom_ecn_timeout(int sockfd, char *buf, size_t len, ecn_tp &ecn, time_tp timeout, SOCKADDR *src_addr, socklen_t *addrlen)
-{
-#ifdef WIN32
-    return recvfrom(sockfd, buf, len, 0, src_addr, addrlen);
-#elif __linux__
-    ssize_t r;
-    char ctrl_msg[CMSG_SPACE(sizeof(ecn))];
-
-    struct msghdr rcv_msg;
-    struct iovec rcv_iov[1];
-    rcv_iov[0].iov_len = len;
-    rcv_iov[0].iov_base = buf;
-
-    rcv_msg.msg_name = (SOCKADDR_IN *) src_addr;
-    rcv_msg.msg_namelen = *addrlen;
-    rcv_msg.msg_iov = rcv_iov;
-    rcv_msg.msg_iovlen = 1;
-    rcv_msg.msg_control = ctrl_msg;
-    rcv_msg.msg_controllen = sizeof(ctrl_msg);
-
-    if (timeout > 0) {
-        struct timeval tv_in;
-        tv_in.tv_sec =  ((uint32_t) timeout) / 1000000;
-        tv_in.tv_usec = ((uint32_t) timeout) % 1000000;
-        fd_set recvsds;
-        FD_ZERO(&recvsds);
-        FD_SET((unsigned int) sockfd, &recvsds);
-        int rv = select(sockfd + 1, &recvsds, NULL, NULL, &tv_in);
-        if (rv < 0) {
-            // select error
-            return -1;
-        } else if (rv == 0)  {
-            // Timeout
-            return 0;
-        } else {
-            // socket has something to read
-            if ((r = recvmsg(sockfd, &rcv_msg, 0)) < 0) {
-                perror("Fail to recv UDP message from socket\n");
-                return -1;
-            }
-        }
-    } else {
-        if ((r = recvmsg(sockfd, &rcv_msg, 0)) < 0) {
-            perror("Fail to recv UDP message from socket\n");
-            return r;
-        }
-    }
-    struct cmsghdr *cmptr = CMSG_FIRSTHDR(&rcv_msg);
-    assert(cmptr->cmsg_level == IPPROTO_IP && cmptr->cmsg_type == IP_TOS);
-    ecn = (ecn_tp)((unsigned char)(*(uint32_t*)CMSG_DATA(cmptr)) & ECN_MASK);
-
-    return r;
-
-#endif
-}
-ssize_t sendto_ecn(SOCKET sockfd, char *buf, size_t len, ecn_tp ecn, const SOCKADDR *dest_addr, socklen_t addrlen)
-{
-#ifdef WIN32
-    DWORD numBytes;
-    INT error;
-    CHAR control[WSA_CMSG_SPACE(sizeof(INT))] = { 0 };
-    WSABUF dataBuf;
-    WSABUF controlBuf;
-    WSAMSG wsaMsg;
-    PCMSGHDR cmsg;
-    dataBuf.buf = buf;
-    dataBuf.len = len;
-    controlBuf.buf = control;
-    controlBuf.len = sizeof(control);
-    wsaMsg.name = dest_addr;
-    wsaMsg.namelen = addrlen;
-    wsaMsg.lpBuffers = &dataBuf;
-    wsaMsg.dwBufferCount = 1;
-    wsaMsg.Control = controlBuf;
-    wsaMsg.dwFlags = 0;
-    cmsg = WSA_CMSG_FIRSTHDR(&wsaMsg);
-    cmsg->cmsg_len = WSA_CMSG_LEN(sizeof(INT));
-    cmsg->cmsg_level = (PSOCKADDR_STORAGE(dest_addr)->ss_family == AF_INET) ? IPPROTO_IP : IPPROTO_IPV6;
-    cmsg->cmsg_type = (PSOCKADDR_STORAGE(dest_addr)->ss_family == AF_INET) ? IP_ECN : IPV6_ECN;
-    *(PINT)WSA_CMSG_DATA(cmsg) = ecn;
-    return sendmsg(sockfd, &wsaMsg, 0, &numBytes, NULL, NULL);
-#elif __linux__
-    if (current_ecn != ecn) {
-        if (setsockopt(sockfd, IPPROTO_IP, IP_TOS, &ecn, sizeof(ecn)) < 0) {
-            printf("Could not apply ecn %d,\n", ecn);
-            return -1;
-        }
-        current_ecn = ecn;
-    }
-    return sendto(sockfd, buf, len, 0, dest_addr, addrlen);
-#endif
-}
-
 int main(int argc, char **argv)
 {
     bool verbose = false;
     bool quiet = false;
+    const char *rcv_addr = "0.0.0.0"; // any IP address
     int rcv_port = 8080;
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
-        if (arg == "-p" && i + 1 < argc) {
+        if (arg == "-a" && i + 1 < argc) {
+            rcv_addr = argv[++i];
+        } else if (arg == "-p" && i + 1 < argc) {
             rcv_port = atoi(argv[++i]);
         } else if (arg == "-v") {
             verbose = true;
@@ -190,85 +57,61 @@ int main(int argc, char **argv)
         } else if (arg == "-q") {
             quiet = true;
         } else {
-            perror("Usage: udp_prague_receiver -p <receiver port> -v (for verbose prints) -q (for quiet)");
+            perror("Usage: udp_prague_receiver -a <receiver address, def: 0.0.0.0> -p <receiver port, def: 8080> -v (for verbose prints) -q (for quiet)");
             return 1;
         }
     }
-    initsocks();
     // Create a UDP socket
-    SOCKET sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (int(sockfd) < 0) {
-        perror("Socket creation failed.\n");
-        cleanupsocks();
-        exit(1);
-    }
-    // Set server address
-    SOCKADDR_IN server_addr;
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.S_ADDR = INADDR_ANY;
-    server_addr.sin_port = htons(rcv_port);
-
-    // Bind the socket to the server address
-    if (int(bind(sockfd, (SOCKADDR *)&server_addr, sizeof(server_addr))) < 0) {
-        perror("Bind failed.\n");
-        closesocket(sockfd);
-        cleanupsocks();
-        exit(1);
-    }
-
-#ifdef WIN32
-#elif __linux__
-    unsigned int set = 1;
-    if (setsockopt(sockfd, IPPROTO_IP, IP_RECVTOS, &set, sizeof(set)) < 0) {
-        perror("Could not set RECVTOS");
-        exit(1);
-    }
-#endif
-
-    printf("UDP Prague receiver listening on port %d.\n", rcv_port);
+    UDPSocket us;
+    us.Bind(rcv_addr, rcv_port);
 
     char receivebuffer[BUFFER_SIZE];
 
     struct datamessage_t& data_msg = (struct datamessage_t&)(receivebuffer);  // overlaying the receive buffer
     struct ackmessage_t ack_msg;     // the send buffer
 
+    printf("UDP Prague receiver listening on port %d.\n", rcv_port);
+
     // create a PragueCC object. No parameters needed if only ACKs are sent
     PragueCC pragueCC;
-    time_tp ref_tm = 0;
-    time_tp data_tm = 0;
-    rate_tp Accbytes_recv = 0;
-    rate_tp Accbytes_send = 0;
-    rate_tp Acc_rtts_acks = 0;
-    count_tp Acc_pkt_acks = 0;
+    time_tp now = pragueCC.Now();  // for reporting only
+    // state for verbose reporting
+    time_tp send_tm = now;      // diff reference
+    // state for default (non-quiet) reporting
+    time_tp rept_tm = now + 1000000;      // timer for reporting interval
+    rate_tp accbytes_recv = 0;  // accumulative bytes received
+    rate_tp accbytes_sent = 0;  // accumulative bytes sent (ACKs)
+    rate_tp acc_rtts_acks = 0;  // accumulative rtts to calculate the average
+    count_tp count_rtts = 0;    // count the RTT reports
+    count_tp prev_packets = 0;  // prev packets received
+    count_tp prev_marks = 0;    // prev marks received
+    count_tp prev_losts = 0;    // prev losts received
 
     if (verbose) {
-        printf("r: timestamp, echoed_timestamp, seqnr, bytes_received, time_diff\n");
-        printf("s: timestamp, echoed_timestamp, packets_received, packets_CE, packets_lost, seqnr, error_L4S\n");
+        printf("r: time, timestamp, echoed_timestamp, bytes_received, seqnr\n");
+        printf("s: time, timestamp, echoed_timestamp, time_diff, packets_received, packets_CE, packets_lost, seqnr, error_L4S\n");
     }
     while (true) {
         // Wait for an incoming data message
-        SOCKADDR_IN client_addr;
-        socklen_t client_len = sizeof(client_addr);
         ecn_tp rcv_ecn = ecn_not_ect;
-        ssize_t bytes_received = recvfrom_ecn_timeout(sockfd, receivebuffer, sizeof(receivebuffer), rcv_ecn, 0, (SOCKADDR *)&client_addr, &client_len);
+        size_tp bytes_received = us.Receive(receivebuffer, sizeof(receivebuffer), rcv_ecn, 0);
 
-        while (bytes_received == -1) {   // repeat if timeout or interrupted
-            if (errno != EWOULDBLOCK && errno != EAGAIN) {
-                perror("ERROR on recvfrom");
-                exit(1);
-            }
-            bytes_received = recvfrom_ecn_timeout(sockfd, receivebuffer, sizeof(receivebuffer), rcv_ecn, 0, (SOCKADDR *)&client_addr, &client_len);
+        while (bytes_received == 0) {   // repeat if timeout or interrupted
+            bytes_received = us.Receive(receivebuffer, sizeof(receivebuffer), rcv_ecn, 0);
         }
 
         // Extract the data message
         data_msg.hton();  // swap byte order
-        Accbytes_recv += bytes_received;
-        Acc_rtts_acks += (data_msg.timestamp == data_msg.echoed_timestamp) ? 0 : (pragueCC.Now() - data_msg.echoed_timestamp);
-        Acc_pkt_acks += 1;
+        if (!quiet) {
+            accbytes_recv += bytes_received;
+            if (data_msg.echoed_timestamp) {
+                acc_rtts_acks += (now - data_msg.echoed_timestamp);
+                count_rtts++;
+            }
+        }
         if (verbose) {
-            printf("r: %d, %d, %d, %ld, %d\n", data_msg.timestamp, data_msg.echoed_timestamp, data_msg.seq_nr, bytes_received, data_msg.timestamp - data_tm);
-            data_tm = data_msg.timestamp;
+            now = pragueCC.Now();
+            printf("r: %d, %d, %d, %lld, %d\n", now, data_msg.timestamp, data_msg.echoed_timestamp, bytes_received, data_msg.seq_nr);
         }
 
         // Pass the relevant data to the PragueCC object:
@@ -281,34 +124,43 @@ int main(int argc, char **argv)
         pragueCC.GetACKInfo(ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, ack_msg.error_L4S);
 
         if (verbose) {
-            printf("s: %d, %d, %d, %d, %d, %d\n",
-                       ack_msg.timestamp, ack_msg.echoed_timestamp, ack_msg.packets_received, 
-                       ack_msg.packets_CE, ack_msg.packets_lost, ack_msg.error_L4S);
+            now = pragueCC.Now();
+            printf("s: %d, %d, %d, %d, %d, %d, %d, %d, %d\n",
+                       now, ack_msg.timestamp, ack_msg.echoed_timestamp, ack_msg.timestamp - send_tm, ack_msg.packets_received,
+                       ack_msg.packets_CE, ack_msg.packets_lost, data_msg.seq_nr, ack_msg.error_L4S);
+            send_tm = ack_msg.timestamp;
         }
 
         ack_msg.hton();  // swap byte order if needed
-        ssize_t bytes_sent = sendto_ecn(sockfd, (char*)(&ack_msg), sizeof(ack_msg), new_ecn, (SOCKADDR *)&client_addr, client_len);
+        size_tp bytes_sent = us.Send((char*)(&ack_msg), sizeof(ack_msg), new_ecn);
         if (bytes_sent != sizeof(ack_msg)) {
             perror("invalid ack packet length sent");
             exit(1);
         }
-        Accbytes_send += bytes_sent;
         if (!quiet) {
-            time_tp now = pragueCC.Now();
-            if (ref_tm == 0) {
-                ref_tm = now;
-                data_tm = now;
-            }
-            if (now - data_tm >= 1000000) {
-                float rate_recv = 8.0f*Accbytes_recv / (now - data_tm);
-                float rate_send = 8.0f*Accbytes_send / (now - data_tm);
-                float rtts_acks = (Acc_pkt_acks > 0) ? Acc_rtts_acks/(1000.0f * Acc_pkt_acks) : 0.0f;
-                printf("[RECVER] %.2f sec, %.3f Mbps, Acks rate: %.3f Mbps, Acks RTT: %.3f ms\n", (now - ref_tm)/1000000.0f, rate_recv, rate_send, rtts_acks);
-                Accbytes_recv = 0;
-                Accbytes_send = 0;
-                Acc_rtts_acks = 0;
-                Acc_pkt_acks = 0;
-                data_tm = data_tm + 1000000;
+            ack_msg.hton();  // swap back byte order
+            accbytes_sent += bytes_sent;
+            now = pragueCC.Now();
+            if (now - rept_tm >= 0) {
+                float rate_recv = 8.0f * accbytes_recv / (now - rept_tm + 1000000);
+                float rate_send = 8.0f * accbytes_sent / (now - rept_tm + 1000000);
+                float rtts_acks = (count_rtts > 0) ? 0.001f * acc_rtts_acks / count_rtts : 0.0f;
+                float mark_prob = (ack_msg.packets_received > prev_packets) ?
+                    100.0f * (ack_msg.packets_CE - prev_marks) / (ack_msg.packets_received - prev_packets) : 0.0f;
+                float loss_prob = (ack_msg.packets_received > prev_packets) ?
+                    100.0f*(ack_msg.packets_lost - prev_losts) / (ack_msg.packets_received - prev_packets) : 0.0f;
+                printf("[RECVER]: %.2f sec, %.3f Mbps, ACKs rate: %.3f Mbps, Acks RTT: %.3f ms, Mark: %.2f%%(%d/%d), Lost: %.2f%%(%d/%d)\n",
+                    now / 1000000.0f, rate_recv, rate_send, rtts_acks,
+                    mark_prob, ack_msg.packets_CE - prev_marks, ack_msg.packets_received - prev_packets,
+                    loss_prob, ack_msg.packets_lost - prev_losts, ack_msg.packets_received - prev_packets);
+                rept_tm = now + 1000000;
+                accbytes_recv = 0;
+                accbytes_sent = 0;
+                acc_rtts_acks = 0;
+                count_rtts = 0;
+                prev_packets = ack_msg.packets_received;
+                prev_marks = ack_msg.packets_CE;
+                prev_losts = ack_msg.packets_lost;
             }
         }
     }

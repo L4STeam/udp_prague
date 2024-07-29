@@ -12,12 +12,19 @@ void UNUSED(Args&& ...args)
     (void)(sizeof...(args));
 }
 
-time_tp PragueCC::Now() // TODO: microsecond to time_tp
+time_tp PragueCC::Now() // Returns number of µs since first call
 {
-    // Check if now==0; skip this value used to check uninitialized timepstamp
-    time_tp now = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    // Checks if now==0; skip this value used to check uninitialized timepstamp
+    if (start_ref == 0) {
+        start_ref = time_tp(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+        if (start_ref == 0) {
+            start_ref = -1;  // init start_ref with -1 to avoid next now to be less than this value
+        }
+        return 1; // make sure we don't return less than or equal to 0
+    }
+    time_tp now = time_tp(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count()) - start_ref;
     if (now == 0) {
-        now++;
+        return 1; // make sure we don't return 0
     }
     return now;   
 }
@@ -127,11 +134,11 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
         m_packet_size = 150;
     if (m_packet_size > m_max_packet_size)
         m_packet_size = m_max_packet_size;
-    m_packet_burst = m_pacing_rate * 250 / 1000000 / m_packet_size;  // p = B/s * 250µs / B/p
+    m_packet_burst = count_tp(m_pacing_rate * 250 / 1000000 / m_packet_size);  // p = B/s * 250µs / B/p
     if (m_packet_burst < 1) {
         m_packet_burst = 1;
     }
-    m_packet_window = (m_fractional_window/1000000 + m_packet_size -1)/m_packet_size;
+    m_packet_window = count_tp((m_fractional_window/1000000 + m_packet_size -1)/m_packet_size);
     if (m_packet_window < 2) {
         m_packet_window = 2;
     }
@@ -213,7 +220,10 @@ void PragueCC::GetTimeInfo(          // when the any-app needs to send a packet
     ecn_tp &ip_ecn)
 {
     timestamp = Now();
-    echoed_timestamp = timestamp - m_ts_remote;  // if frozen
+    if (m_ts_remote)
+        echoed_timestamp = timestamp - m_ts_remote;  // if frozen
+    else
+        echoed_timestamp = 0;
     //echoed_timestamp = m_ts_remote;  // if not frozen
     if (m_error_L4S == true)
     {
