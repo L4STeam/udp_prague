@@ -135,7 +135,6 @@ int main(int argc, char **argv)
             inflight++;
         }
         if (startSend != 0) {
-            time_tp prev_sn = nextSend;
             nextSend = time_tp(startSend + packet_size * inburst * 1000000 / pacing_rate);
         }
         time_tp waitTimeout = 0;
@@ -148,8 +147,6 @@ int main(int argc, char **argv)
         size_tp bytes_received = 0;
         do {
             timeout = (waitTimeout - now > 0) ? (waitTimeout - now) : 1;
-            SOCKADDR_IN src_addr;
-            socklen_t src_len = sizeof(src_addr);
 
             bytes_received = us.Receive(receivebuffer, sizeof(receivebuffer), rcv_ecn, timeout);
             now = pragueCC.Now();

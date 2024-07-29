@@ -30,6 +30,8 @@ typedef struct sockaddr_in SOCKADDR_IN;
 typedef struct sockaddr SOCKADDR;
 #define S_ADDR s_addr
 #define closesocket close
+#define ECN_MASK ecn_ce
+#define SOCKET_ERROR SO_ERROR
 #endif
 
 class UDPSocket {
@@ -238,7 +240,7 @@ public:
             }
             current_ecn = ecn;
         }
-        rc = sendto(sockfd, buf, len, 0, dest_addr, addrlen);
+        rc = sendto(sockfd, buf, len, 0, (SOCKADDR *) &peer_addr, peer_len);
         if (rc < 0) {
             perror("Sent failed.");
             exit(1);
