@@ -103,6 +103,7 @@ int main(int argc, char **argv)
         // Extract the data message
         data_msg.hton();  // swap byte order
         if (!quiet) {
+            now = pragueCC.Now();
             accbytes_recv += bytes_received;
             if (data_msg.echoed_timestamp) {
                 acc_rtts_acks += (now - data_msg.echoed_timestamp);
