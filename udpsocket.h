@@ -43,7 +43,11 @@ class UDPSocket {
     socklen_t peer_len;
     SOCKET sockfd;
 public:
-    UDPSocket() : WSARecvMsg(NULL), WSASendMsg(NULL), current_ecn(ecn_not_ect), peer_len(sizeof(peer_addr)) {
+    UDPSocket() :
+#ifdef WIN32
+        WSARecvMsg(NULL), WSASendMsg(NULL), 
+#endif
+        current_ecn(ecn_not_ect), peer_len(sizeof(peer_addr)) {
 #ifdef WIN32
         DWORD dwThreadPri;
         if (!SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL))
