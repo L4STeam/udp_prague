@@ -26,7 +26,7 @@ time_tp PragueCC::Now() // Returns number of µs since first call
     if (now == 0) {
         return 1; // make sure we don't return 0
     }
-    return now;   
+    return now;
 }
 
 bool PragueCC::PacketReceived(         // call this when a packet is received from peer. Returns true if this is a newer packet, false if this is an older
@@ -71,7 +71,7 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     time_tp ts = Now();
     // Update alpha if both a window and a virtual rtt are passed
     if ((packets_received + packets_lost - m_alpha_packets_sent > 0) && (ts - m_alpha_ts - m_vrtt >= 0)) {
-    //if ((packets_received - m_alpha_packets_received + packets_lost - m_alpha_packets_lost > max(2, m_fractional_window / m_packet_size / 1000000)) 
+    //if ((packets_received - m_alpha_packets_received + packets_lost - m_alpha_packets_lost > max(2, m_fractional_window / m_packet_size / 1000000))
     //    && (now() - m_prev_cycle > 25000)) {
         // prob_tp prob = (packets_CE - m_alpha_packets_CE) << PROB_SHIFT / (packets_received - m_alpha_packets_received);
         prob_tp prob = (prob_tp(packets_CE - m_alpha_packets_CE) << PROB_SHIFT) / (packets_received - m_alpha_packets_received);
@@ -91,7 +91,7 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     // Clear the in_loss state if in_loss and a real and vrtual rtt are passed
     if ((m_cc_state == cs_in_loss) && (packets_received + packets_lost - m_loss_packets_sent > 0) && (ts - m_loss_ts - m_vrtt >= 0)) {
         m_cc_state = cs_cong_avoid;                // set the loss state to avoid multiple reductions per RTT
-        // keep all loss info for undo if later reordering is found (loss is reduced to m_loss_packets_lost again) 
+        // keep all loss info for undo if later reordering is found (loss is reduced to m_loss_packets_lost again)
     }
     // Reduce the window if the loss count is increased
     if ((m_cc_state != cs_in_loss) && (m_packets_lost - packets_lost < 0)) {
@@ -107,7 +107,7 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     if ((m_cc_state != cs_in_loss) && (acks > 0))
     {   // W[p] = W + acks / W * (srrt/vrtt)², but in the right order to not lose precision
         // W[µB] = W + acks * mtu² * 1000000² / W * (srrt/vrtt)²
-        // correct order to prevent loss of precision 
+        // correct order to prevent loss of precision
         m_fractional_window += acks * m_packet_size * srtt * 1000000 / m_vrtt * m_packet_size * srtt / m_vrtt * 1000000 / m_fractional_window;
     }
 
@@ -165,7 +165,7 @@ bool PragueCC::FrameACKReceived(   // call this when a frame ACK is received fro
 
 void PragueCC::DataReceivedSequence(  // call this every time when a data packet is received as a receiver
     ecn_tp ip_ecn,                    // IP.ECN field value
-    count_tp packet_seq_nr)           // sequence number of the received packet 
+    count_tp packet_seq_nr)           // sequence number of the received packet
 {
     ip_ecn = ecn_tp(ip_ecn & ecn_ce);
     m_r_packets_received++;           // assuming no duplicates (by for instance the NW)
@@ -186,7 +186,7 @@ void PragueCC::DataReceivedSequence(  // call this every time when a data packet
 
 void PragueCC::DataReceived(   // call this when a data packet is received as a receiver and you can identify lost packets
     ecn_tp ip_ecn,             // IP.ECN field value
-    count_tp packets_lost)     // packets skipped; can be optionally -1 to potentially undo a previous cwindow reduction 
+    count_tp packets_lost)     // packets skipped; can be optionally -1 to potentially undo a previous cwindow reduction
 {
     ip_ecn = ecn_tp(ip_ecn & ecn_ce);
     m_r_packets_received++;
@@ -262,7 +262,7 @@ void PragueCC::GetACKInfo(       // when the receiving-app needs to send a packe
     error_L4S = m_r_error_L4S;
 }
 
-void PragueCC::GetCCInfoVideo( // when the sending app needs to send a frame        
+void PragueCC::GetCCInfoVideo( // when the sending app needs to send a frame
     rate_tp &pacing_rate,      // rate to pace the packets
     size_tp &frame_size,       // the size of a single frame in Bytes
     count_tp &frame_window,    // the congestion window in number of frames

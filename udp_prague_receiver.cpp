@@ -5,8 +5,8 @@
 #include "prague_cc.h"
 #include "udpsocket.h"
 
-#define BUFFER_SIZE 8192       // in bytes (depending on MTU) 
-#define ECN_MASK ecn_ce
+#define BUFFER_SIZE 8192       // in bytes (depending on MTU)
+#define C_STR(i) std::to_string(i).c_str()
 
 #pragma pack(push, 1)
 struct datamessage_t {
@@ -112,7 +112,7 @@ int main(int argc, char **argv)
         }
         if (verbose) {
             now = pragueCC.Now();
-            printf("r: %d, %d, %d, %lld, %d\n", now, data_msg.timestamp, data_msg.echoed_timestamp, bytes_received, data_msg.seq_nr);
+            printf("r: %d, %d, %d, %s, %d\n", now, data_msg.timestamp, data_msg.echoed_timestamp, C_STR(bytes_received), data_msg.seq_nr);
         }
 
         // Pass the relevant data to the PragueCC object:
@@ -146,9 +146,9 @@ int main(int argc, char **argv)
                 float rate_recv = 8.0f * accbytes_recv / (now - rept_tm + 1000000);
                 float rate_send = 8.0f * accbytes_sent / (now - rept_tm + 1000000);
                 float rtts_acks = (count_rtts > 0) ? 0.001f * acc_rtts_acks / count_rtts : 0.0f;
-                float mark_prob = (ack_msg.packets_received > prev_packets) ?
+                float mark_prob = (ack_msg.packets_received - prev_packets > 0) ?
                     100.0f * (ack_msg.packets_CE - prev_marks) / (ack_msg.packets_received - prev_packets) : 0.0f;
-                float loss_prob = (ack_msg.packets_received > prev_packets) ?
+                float loss_prob = (ack_msg.packets_received - prev_packets > 0) ?
                     100.0f*(ack_msg.packets_lost - prev_losts) / (ack_msg.packets_received - prev_packets) : 0.0f;
                 printf("[RECVER]: %.2f sec, %.3f Mbps, ACKs rate: %.3f Mbps, Acks RTT: %.3f ms, Mark: %.2f%%(%d/%d), Lost: %.2f%%(%d/%d)\n",
                     now / 1000000.0f, rate_recv, rate_send, rtts_acks,

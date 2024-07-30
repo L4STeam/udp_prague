@@ -47,7 +47,7 @@ class UDPSocket {
 public:
     UDPSocket() :
 #ifdef WIN32
-        WSARecvMsg(NULL), WSASendMsg(NULL), 
+        WSARecvMsg(NULL), WSASendMsg(NULL),
 #endif
         current_ecn(ecn_not_ect), peer_len(sizeof(peer_addr)) {
 #ifdef WIN32
@@ -196,7 +196,7 @@ public:
         if ((cmptr->cmsg_level != IPPROTO_IP) || (cmptr->cmsg_type != IP_TOS)) {
             perror("Fail to recv IP.ECN field from packet\n");
             exit(1);
-        };
+        }
         ecn = (ecn_tp)((unsigned char)(*(uint32_t*)CMSG_DATA(cmptr)) & ECN_MASK);
         return r;
 #endif

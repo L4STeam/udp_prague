@@ -1,4 +1,4 @@
-// udp_p                                                                        rague_sender.cpp:
+// udp_prague_sender.cpp:
 // An example of a (dummy data) UDP sender that needs to receive ACKs from a UDP receiver for congestion control
 //
 
@@ -6,7 +6,7 @@
 #include "udpsocket.h"
 
 #define BUFFER_SIZE 8192       // in bytes (depending on MTU)
-#define ECN_MASK ecn_ce
+#define C_STR(i) std::to_string(i).c_str()
 
 #pragma pack(push, 1)
 struct datamessage_t {
@@ -78,7 +78,7 @@ int main(int argc, char **argv)
     struct ackmessage_t& ack_msg = (struct ackmessage_t&)(receivebuffer);  // overlaying the receive buffer
     struct datamessage_t& data_msg = (struct datamessage_t&)(sendbuffer);  // overlaying the send buffer
 
-    printf("UDP Prague sender sending to %s on port %d with max packet size %lld bytes.\n", rcv_addr, rcv_port, max_pkt);
+    printf("UDP Prague sender sending to %s on port %d with max packet size %s bytes.\n", rcv_addr, rcv_port, C_STR(max_pkt));
 
     // create a PragueCC object. Using default parameters for the Prague CC in line with TCP_Prague
     PragueCC pragueCC(max_pkt);
@@ -113,15 +113,16 @@ int main(int argc, char **argv)
         time_tp timeout = 0;
         time_tp startSend = 0;
         time_tp now = pragueCC.Now();
-        while ((inflight < packet_window) && (inburst < packet_burst) && (nextSend - now <= 0)) {
+        while ((inflight - packet_window < 0) && (inburst - packet_burst < 0) && (nextSend - now <= 0)) {
             ecn_tp new_ecn;
             pragueCC.GetTimeInfo(data_msg.timestamp, data_msg.echoed_timestamp, new_ecn);
             if (startSend == 0)
                 startSend = now;
             data_msg.seq_nr = ++seqnr;
             if (verbose) {
-                printf("s: %d, %d, %d, %d, %lld, %d, %d, %lld, %d, %d, %d, %d\n",
-                       now, data_msg.timestamp, data_msg.echoed_timestamp, data_msg.timestamp - send_tm, pacing_rate, packet_window, packet_burst, packet_size, seqnr, inflight, inburst, nextSend);
+                printf("s: %d, %d, %d, %d, %s, %d, %d, %s, %d, %d, %d, %d\n",
+                       now, data_msg.timestamp, data_msg.echoed_timestamp, data_msg.timestamp - send_tm, C_STR(pacing_rate),
+		       packet_window, packet_burst, C_STR(packet_size), seqnr, inflight, inburst, nextSend);
                 send_tm = data_msg.timestamp;
             }
             data_msg.hton();
@@ -139,7 +140,7 @@ int main(int argc, char **argv)
         }
         time_tp waitTimeout = 0;
         now = pragueCC.Now();
-        if (inflight < packet_window)
+        if (inflight - packet_window < 0)
             waitTimeout = nextSend;
         else
             waitTimeout = now + 1000000;
@@ -185,7 +186,7 @@ int main(int argc, char **argv)
                            ack_msg.packets_CE, ack_msg.packets_lost, seqnr, ack_msg.error_L4S, inflight);
         }
         else // timeout, reset state
-            if (inflight >= packet_window) {
+            if (inflight - packet_window >= 0) {
                 pragueCC.ResetCCInfo();
                 inflight = 0;
             }

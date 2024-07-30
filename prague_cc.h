@@ -11,11 +11,11 @@ typedef int32_t time_tp;     // timestamp or interval in microseconds, timestamp
                              // so use only for intervals beteen 2 timestamps
                              // signed because it can wrap around, and we need to compare both ways (< 0 and > 0)
 typedef int32_t count_tp;    // count in packets (or frames), signed because it can wrap around, and we need to compare both ways
-enum ecn_tp: uint8_t {ecn_not_ect=0, ecn_l4s_id=1, ecn_ect0=2, ecn_ce=3}; 
+enum ecn_tp: uint8_t {ecn_not_ect=0, ecn_l4s_id=1, ecn_ect0=2, ecn_ce=3};
                              // 2 bits in the IP header, only values 0-3 are valid, and 1 (0b01) and 3 (0b11) are L4S valid
 typedef uint8_t fps_tp;      // frames per second: any value from 1 till 255 can be used, 0 must be used for bulk
 typedef int64_t prob_tp;
-enum cs_tp {cs_init, cs_cong_avoid, cs_in_loss, cs_in_cwr}; 
+enum cs_tp {cs_init, cs_cong_avoid, cs_in_loss, cs_in_cwr};
 
 struct PragueState {
     // parameters
@@ -106,13 +106,13 @@ public:
     // sender end variables
         m_cc_ts = ts_now;   // time of last cc update
         m_packets_received = 0; // latest known receiver end counters
-        m_packets_CE = 0; 
+        m_packets_CE = 0;
         m_packets_lost = 0;
         m_packets_sent = 0;
         m_error_L4S = false; // latest known receiver end error state
     // for alpha calculation, keep the previous alpha variables' state
         m_alpha_ts = ts_now;  // start recording alpha from now on (every vrtt)
-        m_alpha_packets_received = 0; 
+        m_alpha_packets_received = 0;
         m_alpha_packets_CE = 0;
         m_alpha_packets_lost = 0;
         m_alpha_packets_sent = 0;
@@ -167,14 +167,14 @@ public:
 
     void DataReceived(         // call this when a data packet is received as a receiver and you can identify lost packets
         ecn_tp ip_ecn,             // IP.ECN field value
-        count_tp packets_lost);    // packets skipped; can be optionally -1 to potentially undo a previous cwindow reduction 
+        count_tp packets_lost);    // packets skipped; can be optionally -1 to potentially undo a previous cwindow reduction
 
     void DataReceivedSequence( // call this every time when a data packet with a sequence number is received as a receiver
         ecn_tp ip_ecn,             // IP.ECN field value
-        count_tp packet_seq_nr);   // sequence number of the received packet 
+        count_tp packet_seq_nr);   // sequence number of the received packet
 
     void ResetCCInfo();        // call this when there is a RTO detected
-        
+
     void GetTimeInfo(          // when the any-app needs to send a packet
         time_tp &timestamp,        // Own timestamp to echo by peer
         time_tp &echoed_timestamp, // defrosted timestamp echoed to peer
