@@ -2,6 +2,7 @@
 // An example of a (dummy data) UDP sender that needs to receive ACKs from a UDP receiver for congestion control
 //
 
+#include <string>
 #include "prague_cc.h"
 #include "udpsocket.h"
 
@@ -113,7 +114,7 @@ int main(int argc, char **argv)
         time_tp timeout = 0;
         time_tp startSend = 0;
         time_tp now = pragueCC.Now();
-        while ((inflight - packet_window < 0) && (inburst - packet_burst < 0) && (nextSend - now <= 0)) {
+        while ((inflight < packet_window) && (inburst < packet_burst) && (nextSend - now <= 0)) {
             ecn_tp new_ecn;
             pragueCC.GetTimeInfo(data_msg.timestamp, data_msg.echoed_timestamp, new_ecn);
             if (startSend == 0)
@@ -140,7 +141,7 @@ int main(int argc, char **argv)
         }
         time_tp waitTimeout = 0;
         now = pragueCC.Now();
-        if (inflight - packet_window < 0)
+        if (inflight < packet_window)
             waitTimeout = nextSend;
         else
             waitTimeout = now + 1000000;
@@ -186,7 +187,7 @@ int main(int argc, char **argv)
                            ack_msg.packets_CE, ack_msg.packets_lost, seqnr, ack_msg.error_L4S, inflight);
         }
         else // timeout, reset state
-            if (inflight - packet_window >= 0) {
+            if (inflight >= packet_window) {
                 pragueCC.ResetCCInfo();
                 inflight = 0;
             }

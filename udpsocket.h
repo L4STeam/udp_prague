@@ -51,13 +51,15 @@ public:
 #endif
         current_ecn(ecn_not_ect), peer_len(sizeof(peer_addr)) {
 #ifdef WIN32
+        DWORD dwPriClass;
+        if (!SetPriorityClass(GetCurrentProcess(), REALTIME_PRIORITY_CLASS))
+            perror("SetPriorityClass failed.\n");
+        dwPriClass = GetPriorityClass(GetCurrentProcess());
         DWORD dwThreadPri;
         if (!SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL))
-        {
             perror("SetThreadPriority failed.\n");
-        }
         dwThreadPri = GetThreadPriority(GetCurrentThread());
-        printf("Current thread priority is 0x%x\n", dwThreadPri);
+        printf("Current priority class is 0x%x, thread priority is 0x%x\n", dwPriClass, dwThreadPri);
         // Initialize Winsock
         if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
             perror("WSAStartup failed.\n");

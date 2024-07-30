@@ -2,6 +2,7 @@
 // An example of a (dummy data) UDP receiver that needs to send ACKs for a congestion controlled UDP sender
 //
 
+#include <string>
 #include "prague_cc.h"
 #include "udpsocket.h"
 
