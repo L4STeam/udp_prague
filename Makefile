@@ -6,13 +6,13 @@ HEADERS=prague_cc.h
 CPPFLAGS=-std=c++11 -O3
 WARN=-Wall -Wextra
 
-CPP=g++
+CPP=clang++
 AR=ar
 
 all: udp_prague_receiver udp_prague_sender
 
 lib_prague: $(SRC) $(HEADERS) Makefile
-	$(CPP) $(CPPFLAGS) -O3 $(WARN) -c $(SRC) -o libprague.o
+	$(CPP) $(CPPFLAGS) $(WARN) -c $(SRC) -o libprague.o
 	$(AR) rcs libprague.a libprague.o
 
 udp_prague_receiver: udp_prague_receiver.cpp $(HEADERS) Makefile lib_prague

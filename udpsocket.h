@@ -17,6 +17,12 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <netinet/ip.h>
+#elif __FreeBSD__
+#include <string.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #endif
 #include "prague_cc.h"
 
@@ -25,6 +31,14 @@ typedef int socklen_t;
 typedef int ssize_t;
 #define S_ADDR S_un.S_addr
 #elif __linux__
+typedef int SOCKET;
+typedef struct sockaddr_in SOCKADDR_IN;
+typedef struct sockaddr SOCKADDR;
+#define S_ADDR s_addr
+#define closesocket close
+#define ECN_MASK ecn_ce
+#define SOCKET_ERROR SO_ERROR
+#elif __FreeBSD__
 typedef int SOCKET;
 typedef struct sockaddr_in SOCKADDR_IN;
 typedef struct sockaddr SOCKADDR;
@@ -44,6 +58,11 @@ class UDPSocket {
     SOCKADDR_IN peer_addr;
     socklen_t peer_len;
     SOCKET sockfd;
+    template <typename ...Args>
+    void UNUSED(Args&& ...args)
+    {
+        (void)(sizeof...(args));
+    }
 public:
     UDPSocket() :
 #ifdef WIN32
@@ -66,6 +85,15 @@ public:
             exit(1);
         }
 #elif __linux__
+        if (geteuid() == 0) {
+            struct sched_param sp;
+            sp.sched_priority = sched_get_priority_max(SCHED_RR);
+            // SCHED_OTHER, SCHED_FIFO, SCHED_RR
+            if (sched_setscheduler(0, SCHED_RR, &sp) < 0) {
+                perror("Client set scheduler");
+            }
+        }
+#elif __FreeBSD__
         if (geteuid() == 0) {
             struct sched_param sp;
             sp.sched_priority = sched_get_priority_max(SCHED_RR);
@@ -97,6 +125,12 @@ public:
             exit(1);
         }
 #elif __linux__
+        unsigned int set = 1;
+        if (setsockopt(sockfd, IPPROTO_IP, IP_RECVTOS, &set, sizeof(set)) < 0) {
+            printf("Could not set RECVTOS");
+            exit(1);
+        }
+#elif __FreeBSD__
         unsigned int set = 1;
         if (setsockopt(sockfd, IPPROTO_IP, IP_RECVTOS, &set, sizeof(set)) < 0) {
             printf("Could not set RECVTOS");
@@ -201,6 +235,50 @@ public:
         }
         ecn = (ecn_tp)((unsigned char)(*(uint32_t*)CMSG_DATA(cmptr)) & ECN_MASK);
         return r;
+#elif __FreeBSD__
+        char ctrl_msg[CMSG_SPACE(sizeof(ecn))];
+
+        struct msghdr rcv_msg;
+        struct iovec rcv_iov[1];
+        rcv_iov[0].iov_len = len;
+        rcv_iov[0].iov_base = buf;
+
+        rcv_msg.msg_name = &peer_addr;
+        rcv_msg.msg_namelen = sizeof(peer_addr);
+        rcv_msg.msg_iov = rcv_iov;
+        rcv_msg.msg_iovlen = 1;
+        rcv_msg.msg_control = ctrl_msg;
+        rcv_msg.msg_controllen = sizeof(ctrl_msg);
+
+        if (timeout > 0) {
+            struct timeval tv_in;
+            tv_in.tv_sec = ((uint32_t)timeout) / 1000000;
+            tv_in.tv_usec = ((uint32_t)timeout) % 1000000;
+            fd_set recvsds;
+            FD_ZERO(&recvsds);
+            FD_SET((unsigned int)sockfd, &recvsds);
+            int r = select(sockfd + 1, &recvsds, NULL, NULL, &tv_in);
+            if (r == SOCKET_ERROR) {
+                // select error
+                perror("Select error.\n");
+                exit(1);
+            }
+            else if (r == 0) {
+                // Timeout
+                return 0;
+            }
+        }
+        if ((r = recvmsg(sockfd, &rcv_msg, 0)) < 0) {
+            perror("Fail to recv UDP message from socket\n");
+            exit(1);
+        }
+        struct cmsghdr *cmptr = CMSG_FIRSTHDR(&rcv_msg);
+        if ((cmptr->cmsg_level != IPPROTO_IP) || (cmptr->cmsg_type != IP_TOS)) {
+            perror("Fail to recv IP.ECN field from packet\n");
+            exit(1);
+        }
+        ecn = (ecn_tp)((unsigned char)(*(uint32_t*)CMSG_DATA(cmptr)) & ECN_MASK);
+        return r;
 #endif
     }
     size_tp Send(char *buf, size_tp len, ecn_tp ecn)
@@ -248,6 +326,23 @@ public:
             exit(1);
         }
         return size_tp(rc);
+#elif __FreeBSD
+        if (current_ecn != ecn) {
+            if (setsockopt(sockfd, IPPROTO_IP, IP_TOS, &ecn, sizeof(ecn)) < 0) {
+                printf("Could not apply ecn %d,\n", ecn);
+                return -1;
+            }
+            current_ecn = ecn;
+        }
+        rc = sendto(sockfd, buf, len, 0, (SOCKADDR *) &peer_addr, peer_len);
+        if (rc < 0) {
+            perror("Sent failed.");
+            exit(1);
+        }
+        return size_tp(rc);
+#else
+        UNUSED(buf, len, ecn, rc, current_ecn);
+        return -1;
 #endif
     }
 };

@@ -76,7 +76,8 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
         // prob_tp prob = (packets_CE - m_alpha_packets_CE) << PROB_SHIFT / (packets_received - m_alpha_packets_received);
         prob_tp prob = (prob_tp(packets_CE - m_alpha_packets_CE) << PROB_SHIFT) / (packets_received - m_alpha_packets_received);
         // std::cout << "prob: " << prob << "\n";
-        m_alpha += ((prob - m_alpha) >> 4);
+        m_alpha += ((prob - m_alpha) >> ALPHA_SHIFT);
+        m_alpha = std::max(m_alpha, MAX_PROB);
         m_alpha_packets_sent = packets_sent;
         m_alpha_packets_CE = packets_CE;
         m_alpha_packets_received = packets_received;
