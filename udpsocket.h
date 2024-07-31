@@ -18,7 +18,6 @@
 #include <arpa/inet.h>
 #include <netinet/ip.h>
 #elif __FreeBSD__
-#include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -35,7 +34,6 @@ typedef int SOCKET;
 typedef struct sockaddr_in SOCKADDR_IN;
 typedef struct sockaddr SOCKADDR;
 #define S_ADDR s_addr
-#define closesocket close
 #define ECN_MASK ecn_ce
 #define SOCKET_ERROR SO_ERROR
 #elif __FreeBSD__
@@ -43,7 +41,6 @@ typedef int SOCKET;
 typedef struct sockaddr_in SOCKADDR_IN;
 typedef struct sockaddr SOCKADDR;
 #define S_ADDR s_addr
-#define closesocket close
 #define ECN_MASK ecn_ce
 #define SOCKET_ERROR SO_ERROR
 #endif
@@ -58,17 +55,13 @@ class UDPSocket {
     SOCKADDR_IN peer_addr;
     socklen_t peer_len;
     SOCKET sockfd;
-    template <typename ...Args>
-    void UNUSED(Args&& ...args)
-    {
-        (void)(sizeof...(args));
-    }
+    bool connected;
 public:
     UDPSocket() :
 #ifdef WIN32
         WSARecvMsg(NULL), WSASendMsg(NULL),
 #endif
-        current_ecn(ecn_not_ect), peer_len(sizeof(peer_addr)) {
+        current_ecn(ecn_not_ect), peer_len(sizeof(peer_addr)), connected(false) {
 #ifdef WIN32
         DWORD dwPriClass;
         if (!SetPriorityClass(GetCurrentProcess(), REALTIME_PRIORITY_CLASS))
@@ -141,6 +134,12 @@ public:
     ~UDPSocket() {
 #ifdef WIN32
         WSACleanup();
+#elif __linux__
+        close(sockfd);
+        sockfd = -1;
+#elif __FreeBSD__
+        close(sockfd);
+        sockfd = -1;
 #endif
     }
     void Bind(const char* addr, uint32_t port) {
@@ -160,6 +159,7 @@ public:
         peer_addr.sin_addr.S_ADDR = inet_addr(addr);
         peer_addr.sin_port = htons(port);
         connect(sockfd, (SOCKADDR *)&peer_addr, peer_len);
+        connected = true;
     }
     size_tp Receive(char *buf, size_tp len, ecn_tp &ecn, time_tp timeout)
     {
@@ -273,7 +273,7 @@ public:
             exit(1);
         }
         struct cmsghdr *cmptr = CMSG_FIRSTHDR(&rcv_msg);
-        if ((cmptr->cmsg_level != IPPROTO_IP) || (cmptr->cmsg_type != IP_TOS)) {
+        if ((cmptr->cmsg_level != IPPROTO_IP) || (cmptr->cmsg_type != IP_RECVTOS)) {
             perror("Fail to recv IP.ECN field from packet\n");
             exit(1);
         }
@@ -320,29 +320,33 @@ public:
             }
             current_ecn = ecn;
         }
-        rc = sendto(sockfd, buf, len, 0, (SOCKADDR *) &peer_addr, peer_len);
+        if (connected)
+            rc = send(sockfd, buf ,len, 0);
+        else
+            rc = sendto(sockfd, buf, len, 0, (SOCKADDR *) &peer_addr, peer_len);
         if (rc < 0) {
             perror("Sent failed.");
             exit(1);
         }
         return size_tp(rc);
-#elif __FreeBSD
+#elif __FreeBSD__
         if (current_ecn != ecn) {
-            if (setsockopt(sockfd, IPPROTO_IP, IP_TOS, &ecn, sizeof(ecn)) < 0) {
+            unsigned int ecn_set = ecn;
+            if (setsockopt(sockfd, IPPROTO_IP, IP_TOS, &ecn_set, sizeof(ecn_set)) < 0) {
                 printf("Could not apply ecn %d,\n", ecn);
                 return -1;
             }
             current_ecn = ecn;
         }
-        rc = sendto(sockfd, buf, len, 0, (SOCKADDR *) &peer_addr, peer_len);
+        if (connected)
+            rc = send(sockfd, buf, len, 0);
+        else
+            rc = sendto(sockfd, buf, len, 0, (SOCKADDR *) &peer_addr, peer_len);
         if (rc < 0) {
             perror("Sent failed.");
             exit(1);
         }
         return size_tp(rc);
-#else
-        UNUSED(buf, len, ecn, rc, current_ecn);
-        return -1;
 #endif
     }
 };

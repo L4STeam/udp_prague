@@ -1,12 +1,23 @@
 # run this like this:
-# CPATH=/path/to/aqmt/parser make
+# GNU make utility (make/gmake in Linux/FreeBSD)
 
 SRC=prague_cc.cpp
 HEADERS=prague_cc.h
 CPPFLAGS=-std=c++11 -O3
 WARN=-Wall -Wextra
 
-CPP=clang++
+ifeq ($(OS),Windows_NT)
+	CPP=g++
+else
+	UNAME=$(shell uname -s)
+	ifeq ($(UNAME),Linux)
+		CPP=g++
+	else ifeq ($(UNAME),FreeBSD)
+		CPP=clang++
+	else ifeq ($(UNAME),Darwin)
+		CPP=clang++
+	endif
+endif
 AR=ar
 
 all: udp_prague_receiver udp_prague_sender
