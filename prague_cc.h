@@ -16,6 +16,13 @@ enum ecn_tp: uint8_t {ecn_not_ect=0, ecn_l4s_id=1, ecn_ect0=2, ecn_ce=3};
 typedef uint8_t fps_tp;      // frames per second: any value from 1 till 255 can be used, 0 must be used for bulk
 typedef int64_t prob_tp;
 enum cs_tp {cs_init, cs_cong_avoid, cs_in_loss, cs_in_cwr};
+enum cca_tp {cca_fracwin, cca_rate};
+
+const time_tp BURST_TIME = 250;            // 250 us
+const time_tp REF_RTT = 25000;             // 25ms
+const uint8_t PROB_SHIFT = 20;             // enough as max value that can control up to 100Gbps with r [Mbps] = 1/p - 1, p = 1/(r + 1) = 1/100001
+const prob_tp MAX_PROB = 1 << PROB_SHIFT;  // with r [Mbps] = 1/p - 1 = 2^20 Mbps = 1Tbps
+const uint8_t ALPHA_SHIFT = 4;             // >> 4 is divide by 16
 
 struct PragueState {
     // parameters
@@ -53,6 +60,7 @@ struct PragueState {
     // for loss and recovery calculation
         time_tp   m_loss_ts;
         window_tp m_lost_window;
+        rate_tp   m_lost_rate;
         count_tp  m_loss_packets_lost;
         count_tp  m_loss_packets_sent;
     // for congestion experienced and window reduction (cwr) calculation
@@ -60,6 +68,7 @@ struct PragueState {
         count_tp  m_cwr_packets_sent;
     // state updated for the actual congestion control variables
         cs_tp     m_cc_state;
+        cca_tp    m_cca_mode;
         prob_tp   m_alpha;
         rate_tp   m_pacing_rate;
         window_tp m_fractional_window;
@@ -126,15 +135,16 @@ public:
         m_cwr_packets_sent = 0;
     // state updated for the actual congestion control variables
         m_cc_state = cs_init;
+        m_cca_mode = cca_fracwin;
         m_alpha = 0;
         m_pacing_rate = init_rate;
         m_fractional_window = m_init_window;
-        m_packet_size = m_pacing_rate * 25 / 1000 / 2;            // B/p = B/s * 25ms/burst / 2p/burst
+        m_packet_size = m_pacing_rate * REF_RTT / 1000000 / 2;            // B/p = B/s * 25ms/burst / 2p/burst
         if (m_packet_size < 150)
             m_packet_size = 150;
         if (m_packet_size > m_max_packet_size)
             m_packet_size = m_max_packet_size;
-        m_packet_burst = count_tp(m_pacing_rate * 250 / 1000000 / m_packet_size);  // p = B/s * 250µs / B/p
+        m_packet_burst = count_tp(m_pacing_rate * BURST_TIME / 1000000 / m_packet_size);  // p = B/s * 250µs / B/p
         if (m_packet_burst < 1) {
             m_packet_burst = 1;
         }

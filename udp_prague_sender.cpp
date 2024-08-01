@@ -37,7 +37,7 @@ struct ackmessage_t {
         packets_CE = htonl(packets_CE);
         packets_lost = htonl(packets_lost);
     }
-        };
+};
 #pragma pack(pop)
 
 int main(int argc, char **argv)
@@ -62,7 +62,7 @@ int main(int argc, char **argv)
         } else if (arg == "-q") {
             quiet = true;
         } else {
-            perror("Usage: udp_prague_receiver -a <receiver address, def: 127.0.0.1> -p <receiver port, def:8080> -m <max packet length> -v (for verbose prints) -q (quiet)");;
+            perror("Usage: udp_prague_receiver -a <receiver address, def: 127.0.0.1> -p <receiver port, def:8080> -m <max packet length> -v (for verbose prints) -q (quiet)");
             return 1;
         }
     }
@@ -113,7 +113,7 @@ int main(int argc, char **argv)
         count_tp inburst = 0;
         time_tp timeout = 0;
         time_tp startSend = 0;
-        time_tp now = pragueCC.Now();
+        now = pragueCC.Now();
         while ((inflight < packet_window) && (inburst < packet_burst) && (nextSend - now <= 0)) {
             ecn_tp new_ecn;
             pragueCC.GetTimeInfo(data_msg.timestamp, data_msg.echoed_timestamp, new_ecn);
@@ -123,7 +123,7 @@ int main(int argc, char **argv)
             if (verbose) {
                 printf("s: %d, %d, %d, %d, %s, %d, %d, %s, %d, %d, %d, %d\n",
                        now, data_msg.timestamp, data_msg.echoed_timestamp, data_msg.timestamp - send_tm, C_STR(pacing_rate),
-		       packet_window, packet_burst, C_STR(packet_size), seqnr, inflight, inburst, nextSend);
+                       packet_window, packet_burst, C_STR(packet_size), seqnr, inflight, inburst, nextSend);
                 send_tm = data_msg.timestamp;
             }
             data_msg.hton();
@@ -190,6 +190,7 @@ int main(int argc, char **argv)
             if (inflight >= packet_window) {
                 pragueCC.ResetCCInfo();
                 inflight = 0;
+		perror("Reset PragueCC\n");
             }
         pragueCC.GetCCInfo(pacing_rate, packet_window, packet_burst, packet_size);
     }
