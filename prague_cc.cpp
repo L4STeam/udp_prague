@@ -114,9 +114,11 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
         // W[µB] = W + acks * mtu² * 1000000² / W * (srrt/vrtt)²
         // correct order to prevent loss of precision
         if (m_cca_mode == cca_fracwin) {
-            m_fractional_window += acks * m_packet_size * srtt * 1000000 / m_vrtt * m_packet_size * srtt / m_vrtt * 1000000 / m_fractional_window;
+            //m_fractional_window += acks * m_packet_size * srtt * 1000000 / m_vrtt * m_packet_size * srtt / m_vrtt * 1000000 / m_fractional_window;
+            m_fractional_window += acks * m_packet_size * srtt * 1000000 / m_vrtt * m_max_packet_size * srtt / m_vrtt * 1000000 / m_fractional_window;
         } else {
-            m_pacing_rate += acks * m_packet_size * 1000000 / m_vrtt * m_packet_size / m_vrtt * 1000000 / m_pacing_rate;
+            //m_pacing_rate += acks * m_packet_size * 1000000 / m_vrtt * m_packet_size / m_vrtt * 1000000 / m_pacing_rate;
+	    m_pacing_rate += acks * m_packet_size * 1000000 / m_vrtt * m_max_packet_size / m_vrtt * 1000000 / m_pacing_rate;
         }
     }
 
@@ -146,14 +148,11 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     } else {
         m_fractional_window = m_pacing_rate * srtt; // in uB
     }
-    size_tp pre_packet_size = m_packet_size;
     m_packet_size = m_pacing_rate * m_vrtt / 1000000 / 2;            // B/p = B/s * 25ms/burst / 2p/burst
     if (m_packet_size < 150)
         m_packet_size = 150;
     if (m_packet_size > m_max_packet_size)
         m_packet_size = m_max_packet_size;
-    if (m_packet_size != pre_packet_size)
-        m_fractional_window = m_fractional_window * pre_packet_size / m_packet_size;
     m_packet_burst = count_tp(m_pacing_rate * 250 / 1000000 / m_packet_size);  // p = B/s * 250µs / B/p
     if (m_packet_burst < 1) {
         m_packet_burst = 1;
