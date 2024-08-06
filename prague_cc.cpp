@@ -34,6 +34,7 @@ bool PragueCC::PacketReceived(         // call this when a packet is received fr
     m_ts_remote = ts - timestamp;  // freeze the remote timestamp
     //m_ts_remote = timestamp;  // do not freeze the remote timestamp
     m_rtt = ts - echoed_timestamp;
+    m_rtt_min = (m_rtt_min > m_rtt) ? m_rtt : m_rtt_min;
     if (m_cc_state != cs_init)
         m_srtt += (m_rtt - m_srtt) >> 3;
     else
@@ -41,6 +42,71 @@ bool PragueCC::PacketReceived(         // call this when a packet is received fr
     m_vrtt = (m_srtt > REF_RTT) ? m_srtt : REF_RTT;
     m_r_prev_ts = timestamp;
     return true;
+}
+
+uint32_t PragueCC::fls64(uint64_t x)
+{
+    uint32_t h = x >> 32;
+    if (h)
+        return fls(h) + 32;
+    return fls(x);
+}
+
+int PragueCC::fls(int x)
+{
+    int r = 32;
+
+    if (!x)
+        return 0;
+    if (!(x & 0xffff0000u)) {
+        x <<= 16;
+        r -= 16;
+    }
+    if (!(x & 0xff000000u)) {
+        x <<= 8;
+        r -= 8;
+    }
+    if (!(x & 0xf0000000u)) {
+        x <<= 4;
+        r -= 4;
+    }
+    if (!(x & 0xc0000000u)) {
+        x <<= 2;
+        r -= 2;
+    }
+    if (!(x & 0x80000000u)) {
+        x <<= 1;
+        r -= 1;
+    }
+    return r;
+}
+
+uint32_t PragueCC::CubicRoot(uint64_t a)
+{
+    uint32_t x, b, shift;
+    static const uint8_t v[] = {
+    /* 0x00 */    0,   54,   54,   54,  118,  118,  118,  118,
+    /* 0x08 */  123,  129,  134,  138,  143,  147,  151,  156,
+    /* 0x10 */  157,  161,  164,  168,  170,  173,  176,  179,
+    /* 0x18 */  181,  185,  187,  190,  192,  194,  197,  199,
+    /* 0x20 */  200,  202,  204,  206,  209,  211,  213,  215,
+    /* 0x28 */  217,  219,  221,  222,  224,  225,  227,  229,
+    /* 0x30 */  231,  232,  234,  236,  237,  239,  240,  242,
+    /* 0x38 */  244,  245,  246,  248,  250,  251,  252,  254,
+    };
+
+    b = fls64(a);
+    if (b < 7) {
+      return ((uint32_t)v[(uint32_t)a] + 35) >> 6;
+    }
+
+    b = ((b * 84) >> 8) - 1;
+    shift = (a >> (b * 3));
+
+    x = ((uint32_t)(((uint32_t)v[shift] + 10) << b)) >> 6;
+    x = (2 * x + (uint32_t)(a / ((uint64_t)x * (uint64_t)(x - 1))));
+    x = ((x * 341) >> 10);
+    return x;
 }
 
 bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. Returns true if this is a newer ACK, false if this is an old ACK
@@ -69,7 +135,6 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     //    && (now() - m_prev_cycle > 25000)) {
         // prob_tp prob = (packets_CE - m_alpha_packets_CE) << PROB_SHIFT / (packets_received - m_alpha_packets_received);
         prob_tp prob = (prob_tp(packets_CE - m_alpha_packets_CE) << PROB_SHIFT) / (packets_received - m_alpha_packets_received);
-        // std::cout << "prob: " << prob << "\n";
         m_alpha += ((prob - m_alpha) >> ALPHA_SHIFT);
         m_alpha = (m_alpha > MAX_PROB) ? MAX_PROB : m_alpha;
         m_alpha_packets_sent = packets_sent;
@@ -96,8 +161,20 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     // Reduce the window if the loss count is increased
     if ((m_cc_state != cs_in_loss) && (m_packets_lost - packets_lost < 0)) {
         if (m_cca_mode == cca_fracwin) {
-            m_lost_window = m_fractional_window / 2;  // remember the reduction
-            m_fractional_window -= m_lost_window;     // reduce the window
+            if (m_reno_increase) {
+                m_lost_window = m_fractional_window / 2;  // remember the reduction
+                m_fractional_window -= m_lost_window;     // reduce the window
+            } else {
+                // Cubic part
+                m_cubic_epoch_start = 0;
+                if (m_fractional_window < m_cubic_last_max_fracwin)
+                    m_cubic_last_max_fracwin = (m_fractional_window * (BETA_SCALE + BETA)) / (2 * BETA_SCALE);
+                else
+                    m_cubic_last_max_fracwin = m_fractional_window;
+
+                m_lost_window = m_fractional_window * (BETA_SCALE - BETA) / BETA_SCALE;  // remember the reduction
+                m_fractional_window -= m_lost_window;     // reduce the window
+            }
         } else {
             m_lost_rate = m_pacing_rate / 2;          // remember the reduction
             m_pacing_rate -= m_lost_rate;             // reduce the rate
@@ -114,11 +191,35 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
         // W[µB] = W + acks * mtu² * 1000000² / W * (srrt/vrtt)²
         // correct order to prevent loss of precision
         if (m_cca_mode == cca_fracwin) {
-            //m_fractional_window += acks * m_packet_size * srtt * 1000000 / m_vrtt * m_packet_size * srtt / m_vrtt * 1000000 / m_fractional_window;
-            m_fractional_window += acks * m_packet_size * srtt * 1000000 / m_vrtt * m_max_packet_size * srtt / m_vrtt * 1000000 / m_fractional_window;
+            if (m_reno_increase) {
+                m_fractional_window += acks * m_packet_size * srtt * 1000000 / m_vrtt * m_max_packet_size * srtt / m_vrtt * 1000000 / m_fractional_window;
+            } else {
+                // Linux Cubic implementation includes further (1) check to stop
+                // increasing cwnd when it reaches last_Wmax in a short period,
+                // and (2) the boost for SS mode to make m_cubic_cnt >= 20
+                // We skip those for now...
+                time_tp now = Now();
+                if (m_cubic_epoch_start == 0) {
+                    m_cubic_epoch_start = now;
+                    if (m_cubic_last_max_fracwin <= m_fractional_window) {
+                        m_cubic_K = 0;
+                        m_cubic_origin_fracwin = m_fractional_window;
+                    } else {
+                        m_cubic_K = CubicRoot(((m_cubic_last_max_fracwin - m_fractional_window) * RTT_SCALED / m_packet_size / C_SCALED));
+                        m_cubic_origin_fracwin = m_cubic_last_max_fracwin;
+                    }
+                    //printf("K: %u, last_max: %lu, frac_win: %lu\n", m_cubic_K, m_cubic_last_max_fracwin, m_fractional_window);
+                }
+                uint32_t t = ((time_tp)(now - m_cubic_epoch_start + m_rtt_min) / TIME_SCALE);                            // t = (now - start + RTT)
+                uint64_t offs = (t < m_cubic_K) ? (m_cubic_K - t) : (t - m_cubic_K);                                     // t - K
+                uint64_t delta = (C_SCALED * offs * offs * offs) * m_packet_size / RTT_SCALED;                           // mtu*c/rtt*(t-K)^3
+                uint64_t target = (t < m_cubic_K) ? (m_cubic_origin_fracwin - delta) : (m_cubic_origin_fracwin + delta); // mtu*c/rtt*(t-K)^3 + W_max
+                uint64_t count = (target > m_fractional_window) ? (target - m_fractional_window) : (1);
+                //printf("time: %d, K: %u, offs: %lu, delta: %lu/%lu, pkt: %lu, rtt_min: %d, RTT_SCALED: %lu, count: %lu, target: %lu, fw: %lu\n", t, m_cubic_K, offs, (C_SCALED * offs * offs * offs) * m_packet_size, delta, m_packet_size, m_rtt_min, RTT_SCALED, count, target, m_fractional_window);
+                m_fractional_window += acks * m_max_packet_size * srtt * 1000000 / m_vrtt * srtt / m_vrtt * count / m_fractional_window;
+            }
         } else {
-            //m_pacing_rate += acks * m_packet_size * 1000000 / m_vrtt * m_packet_size / m_vrtt * 1000000 / m_pacing_rate;
-	    m_pacing_rate += acks * m_packet_size * 1000000 / m_vrtt * m_max_packet_size / m_vrtt * 1000000 / m_pacing_rate;
+            m_pacing_rate += acks * m_packet_size * 1000000 / m_vrtt * m_max_packet_size / m_vrtt * 1000000 / m_pacing_rate;
         }
     }
 
@@ -129,7 +230,18 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     // Reduce the window if the CE count is increased, and if not in-loss and not in-cwr
     if ((m_cc_state == cs_cong_avoid) && (m_packets_CE - packets_CE < 0)) {
         if (m_cca_mode == cca_fracwin) {
-            m_fractional_window -= m_fractional_window * m_alpha >> (PROB_SHIFT + 1);   // reduce the window by a factor alpha/2
+            if (m_reno_increase) {
+                m_fractional_window -= m_fractional_window * m_alpha >> (PROB_SHIFT + 1);   // reduce the window by a factor alpha/2
+            } else {
+                // Cubic part
+                m_cubic_epoch_start = 0;
+                //if (m_fractional_window < m_cubic_last_max_fracwin)
+                //    m_cubic_last_max_fracwin = (m_fractional_window * (BETA_SCALE + BETA)) / (2 * BETA_SCALE);
+                //else
+                    m_cubic_last_max_fracwin = m_fractional_window;
+
+                m_fractional_window -= m_fractional_window * m_alpha >> (PROB_SHIFT + 1);
+            }
         } else {
             m_pacing_rate -= m_pacing_rate * m_alpha >> (PROB_SHIFT + 1);   // reduce the rate by a factor alpha/2
         }
@@ -148,11 +260,15 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     } else {
         m_fractional_window = m_pacing_rate * srtt; // in uB
     }
+    size_tp old_packet_size = m_packet_size;
     m_packet_size = m_pacing_rate * m_vrtt / 1000000 / 2;            // B/p = B/s * 25ms/burst / 2p/burst
     if (m_packet_size < 150)
         m_packet_size = 150;
     if (m_packet_size > m_max_packet_size)
         m_packet_size = m_max_packet_size;
+    if (m_packet_size != old_packet_size) {
+        m_cubic_K = m_cubic_K * CubicRoot(old_packet_size) / CubicRoot(m_packet_size);
+    }
     m_packet_burst = count_tp(m_pacing_rate * 250 / 1000000 / m_packet_size);  // p = B/s * 250µs / B/p
     if (m_packet_burst < 1) {
         m_packet_burst = 1;

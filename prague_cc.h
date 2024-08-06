@@ -24,6 +24,12 @@ const uint8_t PROB_SHIFT = 20;             // enough as max value that can contr
 const prob_tp MAX_PROB = 1 << PROB_SHIFT;  // with r [Mbps] = 1/p - 1 = 2^20 Mbps = 1Tbps
 const uint8_t ALPHA_SHIFT = 4;             // >> 4 is divide by 16
 
+const uint16_t BETA       = 717;           // Beta used in Cube increase
+const uint16_t BETA_SCALE = 1024;          // Beta scale
+const uint16_t C_SCALED   = 41;            // C used in Cube increase
+const uint32_t TIME_SCALE = 250;           // Time unit in # of [us]
+const uint64_t RTT_SCALED = (1<<10) * (1000 / TIME_SCALE) * (1000 / TIME_SCALE) * (1000 / TIME_SCALE) / 10; // Cube scaling factor
+
 struct PragueState {
     // parameters
         rate_tp   m_init_rate;
@@ -36,6 +42,7 @@ struct PragueState {
     // both-end variables
         time_tp   m_ts_remote;     // to keep the frozen timestamp from the peer, and echo it back defrosted
         time_tp   m_rtt;           // last reported rtt (only for stats)
+        time_tp   m_rtt_min;       // minimum report rtt (for cubic)
         time_tp   m_srtt;          // our own measured and smoothed RTT (smoothing factor = 1/8)
         time_tp   m_vrtt;          // our own virtual RTT = max(srtt, 25ms)
     // receiver-end variables (to be echoed to sender)
@@ -51,6 +58,12 @@ struct PragueState {
         count_tp  m_packets_lost;
         count_tp  m_packets_sent;
         bool      m_error_L4S;            // latest known receiver-end error state
+    // sender-end cubic variabls
+        bool      m_reno_increase;
+        time_tp   m_cubic_epoch_start;
+        window_tp m_cubic_last_max_fracwin;
+        uint32_t  m_cubic_K;
+        window_tp m_cubic_origin_fracwin;
     // for alpha calculation, keep the previous alpha variables' state
         time_tp   m_alpha_ts;
         count_tp  m_alpha_packets_received;
@@ -104,6 +117,7 @@ public:
     // both end variables
         m_ts_remote = 0;    // to keep the frozen timestamp from the peer, and echo it back defrosted
         m_rtt = 0;          // last reported rtt (only for stats)
+        m_rtt_min = 1000000;// minimum report rtt (for cubic)
         m_srtt = 0;         // our own measured and smoothed RTT (smoothing factor = 1/8)
         m_vrtt = 0;         // our own virtual RTT = max(srtt, 25ms)
     // receiver end variables (to be echoed to sender)
@@ -119,6 +133,12 @@ public:
         m_packets_lost = 0;
         m_packets_sent = 0;
         m_error_L4S = false; // latest known receiver end error state
+    // Cubic
+        m_reno_increase = true;
+        m_cubic_epoch_start = 0;
+        m_cubic_last_max_fracwin = 0;
+        m_cubic_K = 0;
+        m_cubic_origin_fracwin = 0;
     // for alpha calculation, keep the previous alpha variables' state
         m_alpha_ts = ts_now;  // start recording alpha from now on (every vrtt)
         m_alpha_packets_received = 0;
@@ -208,6 +228,11 @@ public:
         count_tp &frame_window,    // the congestion window in number of frames
         count_tp &packet_burst,    // number of packets that can be paced at once (<250µs)
         size_tp &packet_size);     // the packet size to transmit
+
+    // Cubicn functionality
+    uint32_t fls64(uint64_t x);
+    int fls(int x);
+    uint32_t CubicRoot(uint64_t a);
 
     void GetStats(             // For logging purposes
         PragueState &stats)
