@@ -5,6 +5,7 @@
 #include <string>
 #include "prague_cc.h"
 #include "udpsocket.h"
+#include "icmpsocket.h"
 
 #define BUFFER_SIZE 8192       // in bytes (depending on MTU)
 #define C_STR(i) std::to_string(i).c_str()
@@ -47,7 +48,7 @@ int main(int argc, char **argv)
     bool quiet = false;
     const char *rcv_addr = "127.0.0.1";
     uint32_t rcv_port = 8080;
-    size_tp max_pkt = 1400;
+    size_tp max_pkt = 1500;
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "-a" && i + 1 < argc) {
@@ -66,6 +67,10 @@ int main(int argc, char **argv)
             return 1;
         }
     }
+    // Find maximum MTU can be used
+    ICMPSocket icmps(rcv_addr);
+    max_pkt = icmps.mtu_discovery(150, max_pkt, 1000000, 1);
+
     // Create a UDP socket
     UDPSocket us;
     us.Connect(rcv_addr, rcv_port);
