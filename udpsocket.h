@@ -3,9 +3,9 @@
 
 #ifdef WIN32
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
+//#ifndef WIN32_LEAN_AND_MEAN
+//#define WIN32_LEAN_AND_MEAN
+//#endif
 #include <iostream>
 #include <winsock2.h>
 #include <ws2ipdef.h>
@@ -101,11 +101,19 @@ public:
             perror("Get WSASendMsg function pointer failed.\n");
             exit(1);
         }
+        // enable receiving ECN
+        DWORD enabled = TRUE;
+        if ((SOCKET_ERROR == setsockopt(sockfd, IPPROTO_IP, IP_RECVTOS, (char *)&enabled, sizeof(enabled))) &&
+            (SOCKET_ERROR == setsockopt(sockfd, IPPROTO_IPV6, IPV6_RECVTCLASS, (char *)&enabled, sizeof(enabled)))) {
+            perror("setsockopt for IP_RECVTOS/IPV6_RECVTCLASS failed.\n");
+            exit(1);
+        }
+
 #else
         unsigned int set = 1;
         if (setsockopt(sockfd, IPPROTO_IP, IP_RECVTOS, &set, sizeof(set)) < 0) {
-            printf("Could not set RECVTOS");
-            exit(1);
+            perror("setsockopt for IP_RECVTOS failed.\n");
+                exit(1);
         }
 #endif
     }
@@ -138,8 +146,8 @@ public:
     }
     size_tp Receive(char *buf, size_tp len, ecn_tp &ecn, time_tp timeout)
     {
-        ssize_t r;
 #ifdef WIN32
+        int r;
         if (timeout > 0) {
             struct timeval tv_in;
             tv_in.tv_sec = ((uint32_t)timeout) / 1000000;
@@ -147,7 +155,7 @@ public:
             fd_set recvsds;
             FD_ZERO(&recvsds);
             FD_SET((unsigned int)sockfd, &recvsds);
-            int r = select(sockfd + 1, &recvsds, NULL, NULL, &tv_in);
+            r = select(sockfd + 1, &recvsds, NULL, NULL, &tv_in);
             if (r < 0) {
                 // select error
                 perror("Select error.\n");
@@ -158,15 +166,39 @@ public:
                 return 0;
             }
         }
-        peer_len = sizeof(peer_addr);
-        r = recvfrom(sockfd, buf, size_t(len), 0, (SOCKADDR *)&peer_addr, &peer_len);
-        if (r < 0) {
+        DWORD numBytes;
+        CHAR control[WSA_CMSG_SPACE(sizeof(INT))] = { 0 };
+        WSABUF dataBuf;
+        WSABUF controlBuf;
+        WSAMSG wsaMsg;
+        PCMSGHDR cmsg;
+        dataBuf.buf = buf;
+        dataBuf.len = ULONG(len);
+        controlBuf.buf = control;
+        controlBuf.len = sizeof(control);
+        wsaMsg.name = LPSOCKADDR(&peer_addr);
+        wsaMsg.namelen = sizeof(peer_addr);
+        wsaMsg.lpBuffers = &dataBuf;
+        wsaMsg.dwBufferCount = 1;
+        wsaMsg.Control = controlBuf;
+        wsaMsg.dwFlags = 0;
+        r = WSARecvMsg(sockfd, &wsaMsg, &numBytes, NULL, NULL);
+        if (r == SOCKET_ERROR) {
             perror("Fail to recv UDP message from socket.\n");
             exit(1);
         }
-        ecn = ecn_not_ect; // for now TODO read ECN value
-        return r;
+        cmsg = WSA_CMSG_FIRSTHDR(&wsaMsg);
+        while (cmsg != NULL) {
+            if ((cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_TOS) ||
+                (cmsg->cmsg_level == IPPROTO_IPV6 && cmsg->cmsg_type == IPV6_TCLASS)) {
+                ecn = ECN ecn_tp(*(PINT)WSA_CMSG_DATA(cmsg));
+                break;
+            }
+            cmsg = WSA_CMSG_NXTHDR(&wsaMsg, cmsg);
+        }
+        return numBytes;
 #else
+        ssize_t r;
         char ctrl_msg[CMSG_SPACE(sizeof(ecn))];
 
         struct msghdr rcv_msg;
