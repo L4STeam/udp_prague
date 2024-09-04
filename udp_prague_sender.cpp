@@ -5,7 +5,7 @@
 #include <string>
 #include "prague_cc.h"
 #include "udpsocket.h"
-#include "icmpsocket.h"
+//#include "icmpsocket.h" TODO: optimize MTU detection
 
 #define BUFFER_SIZE 8192       // in bytes (depending on MTU)
 #define C_STR(i) std::to_string(i).c_str()
@@ -68,8 +68,8 @@ int main(int argc, char **argv)
         }
     }
     // Find maximum MTU can be used
-    ICMPSocket icmps(rcv_addr);
-    max_pkt = icmps.mtu_discovery(150, max_pkt, 1000000, 1);
+    // ICMPSocket icmps(rcv_addr);
+    // max_pkt = icmps.mtu_discovery(150, max_pkt, 1000000, 1);
 
     // Create a UDP socket
     UDPSocket us;
@@ -168,15 +168,16 @@ int main(int argc, char **argv)
                 // Display sender side info
                 if (now - rept_tm >= 0) {
                     float rate_send = 8.0f * accbytes_sent / (now - rept_tm + 1000000);
+                    float rate_pacing = 8.0f * pacing_rate / 1000000.0;
                     float rtts_data = (count_rtts > 0) ? 0.001f * acc_rtts_data / count_rtts : 0.0f;
                     float mark_prob = (ack_msg.packets_received - prev_packets > 0) ?
                         100.0f * (ack_msg.packets_CE - prev_marks) / (ack_msg.packets_received - prev_packets) : 0.0f;
                     float loss_prob = (ack_msg.packets_received - prev_packets > 0) ?
                         100.0f*(ack_msg.packets_lost - prev_losts) / (ack_msg.packets_received - prev_packets) : 0.0f;
-                    printf("[SENDER]: %.2f sec, %.3f Mbps, Data RTT: %.3f ms, Mark: %.2f%%(%d/%d), Lost: %.2f%%(%d/%d)\n",
+                    printf("[SENDER]: %.2f sec, %.3f Mbps, Data RTT: %.3f ms, Mark: %.2f%%(%d/%d), Lost: %.2f%%(%d/%d), Pacing rate: %f Mbps, InFlight/W: %d/%d packets\n",
                         now / 1000000.0f, rate_send, rtts_data,
                         mark_prob, ack_msg.packets_CE - prev_marks, ack_msg.packets_received - prev_packets,
-                        loss_prob, ack_msg.packets_lost - prev_losts, ack_msg.packets_received - prev_packets);
+                        loss_prob, ack_msg.packets_lost - prev_losts, ack_msg.packets_received - prev_packets, rate_pacing, inflight, packet_window);
                     rept_tm = now + 1000000;
                     accbytes_sent = 0;
                     acc_rtts_data = 0;

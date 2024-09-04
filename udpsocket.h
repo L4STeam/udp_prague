@@ -191,7 +191,7 @@ public:
         while (cmsg != NULL) {
             if ((cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_TOS) ||
                 (cmsg->cmsg_level == IPPROTO_IPV6 && cmsg->cmsg_type == IPV6_TCLASS)) {
-                ecn = ECN ecn_tp(*(PINT)WSA_CMSG_DATA(cmsg));
+                ecn = ecn_tp(*(PINT)WSA_CMSG_DATA(cmsg));
                 break;
             }
             cmsg = WSA_CMSG_NXTHDR(&wsaMsg, cmsg);

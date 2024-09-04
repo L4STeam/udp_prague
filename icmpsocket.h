@@ -2,10 +2,20 @@
 #define ICMPSOCKET_H
 
 #ifdef WIN32
+#define _WINSOCK_DEPRECATED_NO_WARNINGS
+//#ifndef WIN32_LEAN_AND_MEAN
+//#define WIN32_LEAN_AND_MEAN
+//#endif
+#include <winsock2.h>
+#include <ws2ipdef.h>
+//#include <ws2tcpip.h>
+//#include <mstcpip.h>
+//#include <mswsock.h>
 #elif __linux__
 #include <netinet/ip.h>
 #include <netinet/ip_icmp.h>
 #endif
+#include "prague_cc.h"
 
 #ifdef WIN32
 typedef int socklen_t;
@@ -30,7 +40,7 @@ public:
         sockfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP);
         if (int(sockfd) < 0) {
 	    // Check `net.ipv4.ping_group_range` in sysctl
-            printf("ICMP socket creation failed (DGRAM).\n");
+            perror("ICMP socket creation failed (DGRAM).\n");
             exit(1);
         }
         unsigned int val = IP_PMTUDISC_DO;
@@ -40,7 +50,7 @@ public:
         }
         unsigned int ecn_set = ecn;
         if (setsockopt(sockfd, IPPROTO_IP, IP_TOS, &ecn_set, sizeof(ecn_set)) < 0) {
-            printf("Could not apply ecn %d,\n", ecn);
+            perror("Could not setsockopt IP_TOS\n");
             exit(1);
         }
         memset(&peer_addr, 0, peer_len);
@@ -73,7 +83,7 @@ public:
         return ~sum;
     }
 
-    int checkPacket(const struct icmphdr *icmp_rcv, const SOCKADDR_IN pkt_src, uint16_t id = 0)
+    int checkPacket(const icmphdr *icmp_rcv, const SOCKADDR_IN pkt_src, uint16_t id = 0)
     {
         if (icmp_rcv->type == ICMP_ECHOREPLY) {
             if (pkt_src.sin_addr.S_ADDR != peer_addr.sin_addr.S_ADDR) {
@@ -90,7 +100,7 @@ public:
         return 1;
     }
 
-    void setICMPhdr(struct icmphdr *icmp_snd, uint16_t id) {
+    void setICMPhdr(icmphdr *icmp_snd, uint16_t id) {
         icmp_snd->type             = ICMP_ECHO;      // ICMP_ECHO
         icmp_snd->un.echo.sequence = 0;              // Sequence: filled in before sendto()
 
@@ -105,20 +115,20 @@ public:
         memset(&recv_addr, 0, sizeof(recv_addr));
 
         char pkt_snd[max_mtu];
-        struct icmphdr *icmp_snd;
+        icmphdr *icmp_snd;
         uint16_t icmp_iden = 0;
         uint16_t icmp_seqn = 0;
         memset(pkt_snd, 0, max_mtu);
-        icmp_snd = (struct icmphdr *) pkt_snd;
+        icmp_snd = (icmphdr *) pkt_snd;
         setICMPhdr(icmp_snd, icmp_iden);
 
         char pkt_rcv[max_mtu];
-        struct icmphdr *icmp_rcv;
+        icmphdr *icmp_rcv;
         memset(pkt_rcv, 0, max_mtu);
-        icmp_rcv = (struct icmphdr *) pkt_rcv;
+        icmp_rcv = (icmphdr *) pkt_rcv;
 
-        size_tp  mtu_lbound = min_mtu - sizeof(struct iphdr);
-        size_tp  mtu_ubound = max_mtu - sizeof(struct iphdr);
+        size_tp  mtu_lbound = min_mtu - sizeof(iphdr);
+        size_tp  mtu_ubound = max_mtu - sizeof(iphdr);
         size_tp  mtu_best = 0;
         count_tp numtry = maxtry;
 
@@ -183,7 +193,7 @@ public:
                 mtu_ubound = mtu_now - 1;
             }
         }        
-        return mtu_best + sizeof(struct iphdr);
+        return mtu_best + sizeof(iphdr);
     }
 };
 #endif
