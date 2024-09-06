@@ -149,6 +149,8 @@ public:
 #ifdef WIN32
         int r;
         if (timeout > 0) {
+            if (timeout < 15000)
+                 timeout = 0; // Spin for Windows. Select without blocking if the timeout is smaller than 15ms
             struct timeval tv_in;
             tv_in.tv_sec = ((uint32_t)timeout) / 1000000;
             tv_in.tv_usec = ((uint32_t)timeout) % 1000000;
