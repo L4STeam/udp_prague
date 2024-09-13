@@ -13,6 +13,7 @@
 #include <mstcpip.h>
 #include <mswsock.h>
 #elif __linux__
+#include <sched.h>
 #include <string.h>
 #include <unistd.h>
 #include <arpa/inet.h>
