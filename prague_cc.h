@@ -17,6 +17,13 @@ typedef int64_t prob_tp;
 enum cs_tp {cs_init, cs_cong_avoid, cs_in_loss, cs_in_cwr};
 enum cca_tp {cca_prague_win, cca_prague_rate, cca_cubic};  // which CC algorithm is active
 
+static const count_tp PRAGUE_INITWIN  = 10;          // Prague initial window size
+static const size_tp  PRAGUE_MINMTU   = 150;         // Prague minmum MTU suze
+static const size_tp  PRAGUE_INITMTU  = 1400;        // Prague initial MTU size
+static const rate_tp  PRAGUE_INITRATE = 12500;       // Prague initial rate 12500 Byte/s (equiv. 100kbps)
+static const rate_tp  PRAGUE_MINRATE  = 12500;       // Prague minimum rate 12500 Byte/s (equiv. 100kbps)
+static const rate_tp  PRAGUE_MAXRATE  = 12500000000; // Prague maximum rate 12500000000 Byte/s (equiv. 100Gbps)
+
 struct PragueState {
     time_tp   m_start_ref;  // used to have a start time of 0
 // parameters
@@ -82,13 +89,13 @@ struct PragueState {
 class PragueCC: private PragueState {
 public:
     PragueCC(
-        size_tp max_packet_size = 1400,   // use MTU detection, or a low enough value. Can be updated on the fly (todo)
-        fps_tp fps = 0,                   // only used for video; frames per second, 0 must be used for bulk transfer
-        time_tp frame_budget = 0,         // only used for video; over what time [µs] you want to pace the frame (max 1000000/fps [µs])
-        rate_tp init_rate = 12500,        // 12500 Byte/s (equiv. 100kbps)
-        count_tp init_window = 10,        // 10 packets
-        rate_tp min_rate = 12500,         // 12500 Byte/s (equiv. 100kbps)
-        rate_tp max_rate = 12500000000);   // 12500000000 Byte/s (equiv. 100Gbps)
+        size_tp max_packet_size = PRAGUE_INITMTU, // use MTU detection, or a low enough value. Can be updated on the fly (todo)
+        fps_tp fps = 0,                           // only used for video; frames per second, 0 must be used for bulk transfer
+        time_tp frame_budget = 0,                 // only used for video; over what time [µs] you want to pace the frame (max 1000000/fps [µs])
+        rate_tp init_rate = PRAGUE_INITRATE,
+        count_tp init_window = PRAGUE_INITWIN,
+        rate_tp min_rate = PRAGUE_MINRATE,
+        rate_tp max_rate = PRAGUE_MAXRATE);
     
     ~PragueCC();
 
