@@ -213,13 +213,23 @@ bool PragueCC::ACKReceived(    // call this when an ACK (or a Frame ACK) is rece
     if ((m_packets_received - packets_received > 0) || (m_packets_CE - packets_CE > 0)) // this is an older or invalid ACK (these counters can't go down)
         return false;
 
-    //time_tp pacing_interval = m_packet_size * 1000000 / m_pacing_rate; // calculate the max expected rtt from pacing
+    time_tp pacing_interval = m_packet_size * 1000000 / m_pacing_rate; // calculate the max expected rtt from pacing
     //printf("FrW: %ld, SRTT: %d, Pacing interval: %ld, packet_size: %ld, packet_burst: %d, pacing_rate: %ld\n", m_fractional_window, m_srtt, m_packet_size * 1000000 * m_packet_burst / m_pacing_rate, m_packet_size, m_packet_burst, m_pacing_rate);
     time_tp srtt = (m_srtt);// > pacing_interval) ? m_srtt : pacing_interval; // take into account the pacing delay
     if (m_cc_state == cs_init)  // initialize the window with the initial pacing rate
     {
         m_fractional_window = srtt * m_pacing_rate;
         m_cc_state = cs_cong_avoid;
+    }
+    if ((srtt <= 2000) || (srtt <= pacing_interval)) {
+        // keep rate stable when large dip in srtt
+        m_cca_mode = cca_prague_rate;
+    }
+    else {
+        // keep rate stable when large jump in srtt
+        if (m_cca_mode == cca_prague_rate)
+            m_fractional_window = srtt * m_pacing_rate;
+        m_cca_mode = cca_prague_win;
     }
     time_tp ts = Now();
     // Update alpha if both a window and a virtual rtt are passed
@@ -310,7 +320,7 @@ bool PragueCC::ACKReceived(    // call this when an ACK (or a Frame ACK) is rece
             //printf("time: %d, K: %u, offs: %lu, delta: %lu/%lu, pkt: %lu, rtt_min: %d, RTT_SCALED: %lu, count: %lu, target: %lu, fw: %lu\n", t, m_cubic_K, offs, (C_SCALED * offs * offs * offs) * m_packet_size, delta, m_packet_size, m_rtt_min, RTT_SCALED, count, target, m_fractional_window);
             m_fractional_window += acks * m_max_packet_size * srtt * 1000000 / m_vrtt * srtt / m_vrtt * count / m_fractional_window;
         } else {
-            m_pacing_rate += acks * m_packet_size * 1000000 / m_vrtt * m_max_packet_size / m_vrtt * 1000000 / m_pacing_rate;
+            m_pacing_rate += acks * m_max_packet_size * 1000000 / m_vrtt * m_packet_size / m_vrtt * 1000000 / m_pacing_rate;
         }
     }
 
@@ -340,6 +350,9 @@ bool PragueCC::ACKReceived(    // call this when an ACK (or a Frame ACK) is rece
     if (m_pacing_rate > m_max_rate)
         m_pacing_rate = m_max_rate;
     m_fractional_window = m_pacing_rate * srtt;  // in uB
+
+    if (m_fractional_window == 0)
+        m_fractional_window = 1;
 
     size_tp old_packet_size = m_packet_size;
     m_packet_size = m_pacing_rate * m_vrtt / 1000000 / 2;            // B/p = B/s * 25ms/burst / 2p/burst
