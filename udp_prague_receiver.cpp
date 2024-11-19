@@ -66,7 +66,7 @@ int main(int argc, char **argv)
         pragueCC.GetACKInfo(ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, ack_msg.error_L4S);
         ack_msg.hton();  // swap byte order if needed
         size_tp bytes_sent = us.Send((char*)(&ack_msg), sizeof(ack_msg), new_ecn);
-        app.ExitIf(bytes_sent != sizeof(ack_msg), "invalid ack packet length sent");
+        app.ExitIf(bytes_sent != sizeof(ack_msg), "Invalid ack packet length sent.\n");
     }
 
     while (true) {
@@ -96,6 +96,6 @@ int main(int argc, char **argv)
 
         ack_msg.hton();  // swap byte order if needed
         size_tp bytes_sent = us.Send((char*)(&ack_msg), sizeof(ack_msg), new_ecn);
-        app.ExitIf(bytes_sent != sizeof(ack_msg), "invalid ack packet length sent");
+        app.ExitIf(bytes_sent != sizeof(ack_msg), "Invalid ack packet length sent.\n");
     }
 }

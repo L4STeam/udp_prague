@@ -391,7 +391,7 @@ bool PragueCC::ACKReceived(    // call this when an ACK (or a Frame ACK) is rece
     count_tp packets_lost,         // echoed lost counter
     bool error_L4S)                // receiver found a bleached/error ECN; stop using L4S_id on the sending packets!
 {
-    
+
     return true;
 }*/
 

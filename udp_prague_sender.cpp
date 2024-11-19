@@ -45,10 +45,6 @@ int main(int argc, char **argv)
 {
     AppStuff app(true, argc, argv); // initialize the app
 
-    // Find maximum MTU can be used
-    // ICMPSocket icmps(rcv_addr);
-    // max_pkt = icmps.mtu_discovery(150, max_pkt, 1000000, 1);
-
     // Create a UDP socket
     UDPSocket us;
     if (app.connect)
@@ -66,7 +62,8 @@ int main(int argc, char **argv)
     struct datamessage_t& data_msg = (struct datamessage_t&)(sendbuffer);  // overlaying the send buffer
 
     // create a PragueCC object. Using default parameters for the Prague CC in line with TCP_Prague
-    PragueCC pragueCC(app.max_pkt);
+    PragueCC pragueCC(app.max_pkt, 0, 0, PRAGUE_INITRATE, PRAGUE_INITWIN, PRAGUE_MINRATE, app.max_rate);
+
     // outside PragueCC CC-loop state
     time_tp now = pragueCC.Now();
     time_tp nextSend = now;  // time to send the next burst
@@ -78,12 +75,19 @@ int main(int argc, char **argv)
     size_tp packet_size;     // packet size is reduced when rates are low to preserve 2 packets per 25ms pacing interval
 
     ecn_tp rcv_ecn;
-    size_tp bytes_received;
+    size_tp bytes_received = 0;
 
-    if (!app.connect)  // wait for a trigger packet, otherwise just start sending
+    // wait for a trigger packet, otherwise just start sending
+    if (!app.connect) {
         do {
             bytes_received = us.Receive(receivebuffer, sizeof(receivebuffer), rcv_ecn, 0);
         } while (bytes_received == 0);
+        bytes_received = 0;
+    }
+
+    // Find maximum MTU can be used
+    // ICMPSocket icmps(rcv_addr);
+    // max_pkt = icmps.mtu_discovery(150, max_pkt, 1000000, 1);
 
     // get initial CC state
     pragueCC.GetCCInfo(pacing_rate, packet_window, packet_burst, packet_size);
@@ -99,7 +103,7 @@ int main(int argc, char **argv)
             if (startSend == 0)
                 startSend = now;
             data_msg.seq_nr = ++seqnr;
-            app.LogSendData(now, data_msg.timestamp, data_msg.echoed_timestamp, seqnr, packet_size, 
+            app.LogSendData(now, data_msg.timestamp, data_msg.echoed_timestamp, seqnr, packet_size,
                 pacing_rate, packet_window, packet_burst, inflight, inburst, nextSend);
             data_msg.hton();
             size_tp bytes_sent = us.Send((char*)(&data_msg), packet_size, new_ecn);

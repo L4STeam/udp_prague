@@ -30,13 +30,15 @@ typedef struct sockaddr SOCKADDR;
 #define SOCKET_ERROR SO_ERROR
 #endif
 
-class ICMPSocket {
-
+class ICMPSocket
+{
     SOCKADDR_IN peer_addr;
     socklen_t peer_len;
     SOCKET sockfd;
+
 public:
-    ICMPSocket(const char* dst_addr, ecn_tp ecn = ecn_l4s_id) : peer_len(sizeof(peer_addr)) {
+    ICMPSocket(const char* dst_addr, ecn_tp ecn = ecn_l4s_id) : peer_len(sizeof(peer_addr))
+    {
         sockfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP);
         if (int(sockfd) < 0) {
 	    // Check `net.ipv4.ping_group_range` in sysctl
@@ -59,7 +61,8 @@ public:
     }
     ICMPSocket() = delete;
 
-    ~ICMPSocket() {
+    ~ICMPSocket()
+    {
 #ifdef WIN32
         WSACleanup();
 #else
@@ -69,7 +72,8 @@ public:
 #endif
     }
 
-    uint16_t checkSum(void *data, uint16_t len) {
+    uint16_t checkSum(void *data, uint16_t len)
+    {
         uint32_t sum = 0;
         uint16_t *buf = (uint16_t *)data;
         while (len > 1) {
@@ -108,8 +112,8 @@ public:
         icmp_snd->un.echo.id       = htons(id);      // ICMP Identitiy, will be changed by socket in Linux
     }
 
-    size_tp mtu_discovery(size_tp min_mtu, size_tp max_mtu, time_tp timeout = 3000000, count_tp maxtry = 1) {
-
+    size_tp mtu_discovery(size_tp min_mtu, size_tp max_mtu, time_tp timeout = 200000, count_tp maxtry = 1)
+    {
         SOCKADDR_IN recv_addr;
         socklen_t recv_len = sizeof(recv_addr);
         memset(&recv_addr, 0, sizeof(recv_addr));
@@ -143,13 +147,13 @@ public:
         }
 
         while (mtu_lbound <= mtu_ubound) {
-    
+
             size_tp mtu_now = (mtu_lbound + mtu_ubound) / 2;
 
             icmp_snd->un.echo.sequence = htons(++icmp_seqn);
             icmp_snd->checksum = 0;
             icmp_snd->checksum = checkSum(icmp_snd, mtu_now);
-    
+
             if (sendto(sockfd, pkt_snd, mtu_now, 0, (SOCKADDR *) &peer_addr, peer_len) < 0) {
                 if (errno == EMSGSIZE) {
                     //printf("Packet size %lu too big for local interface\n", mtu_now);
@@ -170,7 +174,7 @@ public:
                 }
                 perror("Fail to recv ICMP repsonse.");
                 exit(1);
-            }     
+            }
             int rc = checkPacket(icmp_rcv, recv_addr, icmp_iden);
             if (rc > 0) {
                 //printf("Valid MTU %lu\n", mtu_now);
@@ -188,11 +192,11 @@ public:
                     case -5:    printf("ICMP error, fragmentation needed\n"); break; // ICMP_FRAG_NEEDED
                     case -256:  printf("Unknown error\n");                    break;
                     default:    printf("Other ICMP error\n");                 break;
-                }            
+                }
                 numtry = maxtry;
                 mtu_ubound = mtu_now - 1;
             }
-        }        
+        }
         return mtu_best + sizeof(iphdr);
     }
 };

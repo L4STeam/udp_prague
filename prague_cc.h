@@ -96,7 +96,7 @@ public:
         count_tp init_window = PRAGUE_INITWIN,
         rate_tp min_rate = PRAGUE_MINRATE,
         rate_tp max_rate = PRAGUE_MAXRATE);
-    
+
     ~PragueCC();
 
     time_tp Now();             // will have to return a monotonic increasing signed int 32 which will wrap around (after 4000 seconds)
