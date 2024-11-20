@@ -12,7 +12,7 @@ It can work in 2 modes.
 
 ### Continuous streaming mode (aka UDP-Prague)
 Like TCP, but possible to adapt the source(s) of the data directly (like the CBR of a real-time encoder). A single pacing rate, window and micro-burst size is given that can be used and divided over different in-app streams.
-We also included an example sender and receiver for this below.
+We also included an example sender and receiver for this below. They run by default as a server. Use the -c option on the one that you want to connect as a client.
 
 ### Frame mode (aka RT-Prague)
 To make it RT-Prague. Just provide an "fps" frame rate in Hz and "frame_budget" time in µs. The frame budget is the time you want to allocate to send the frame over. In continuous mode that would be 1/fps, but here it can be shorter, so leaving pauses in between frames. It assumes that each frame can be reasonable equal (so no full I-frames, only P-frames). This mode can reduce the throughput (depends on the bottleneck), but should further reduce the photon to photon latency for very interactive apps. If an fps and frame budget is provided, the GetCCVideoInfo() will tell you an extra output giving the frame size that the encoder should target for the next frame. No full support or example yet, but can be worked on, on request if you join this week.
