@@ -17,7 +17,7 @@ rate_tp bit_atoi_byte(const char *inString)
     double theNum;
     char suffix = '\0';
     // scan the number and any suffices
-    sscanf(inString, "%lf%c", &theNum, &suffix);
+    sscanf_s(inString, "%lf%c", &theNum, &suffix, sizeof(suffix));
 
     /* convert according to [Gg Mm Kk] */
     switch (suffix) {
@@ -97,11 +97,11 @@ struct AppStuff
                     "    -a <IP address, def: 0.0.0.0 or 127.0.0.1 if client>\n"
                     "    -p <server port, def: 8080>\n"
                     "    -c (connect first as a client, otherwise bind and wait for connection)\n"
-                    "    -b <sender specific max bitrate, def: %ld bps>\n"
-                    "    -m <sender specific max packet size, def: %ld B>\n"
+                    "    -b <sender specific max bitrate, def: %s bps>\n"
+                    "    -m <sender specific max packet size, def: %s B>\n"
                     "    -v (for verbose prints)\n"
                     "    -q (quiet)\n",
-                    sender_role ? "sender" : "receiver", 8*PRAGUE_MAXRATE, PRAGUE_INITMTU);
+                    sender_role ? "sender" : "receiver", C_STR(8*PRAGUE_MAXRATE), C_STR(PRAGUE_INITMTU));
                 exit(1);
             }
         }
