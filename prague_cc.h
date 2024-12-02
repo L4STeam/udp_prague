@@ -70,6 +70,7 @@ struct PragueState {
     cca_tp    m_loss_cca;
     window_tp m_lost_window;
     rate_tp   m_lost_rate;
+    count_tp  m_lost_rtts_to_growth;
     count_tp  m_loss_packets_lost;
     count_tp  m_loss_packets_sent;
     // for congestion experienced and window reduction (cwr) calculation
@@ -78,6 +79,7 @@ struct PragueState {
     // state updated for the actual congestion control variables
     cs_tp     m_cc_state;
     cca_tp    m_cca_mode;
+    count_tp  m_rtts_to_growth;   // virtual rtts before going into growth mode
     prob_tp   m_alpha;
     rate_tp   m_pacing_rate;
     window_tp m_fractional_window;

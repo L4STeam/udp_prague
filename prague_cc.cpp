@@ -76,7 +76,10 @@ uint32_t CubicRoot(uint64_t a)
 
 // Prague consts and methods
 
-const time_tp BURST_TIME = 250;            // 250 us
+const rate_tp MIN_STEP = 7;                // Minimally wait for 7 RTTs to try to increase faster
+const rate_tp RATE_STEP = 1920000;         // per 1920kB/s = 15360kbps pacing rate wait one RTT longer
+const time_tp QUEUE_GROWTH = 1000;         // target a queue growth of 1000us = 1ms after waiting pacing_rate / RATE_STEP + MIN_STEP
+const time_tp BURST_TIME = 250;            // 250us
 const time_tp REF_RTT = 25000;             // 25ms
 const uint8_t PROB_SHIFT = 20;             // enough as max value that can control up to 100Gbps with r [Mbps] = 1/p - 1, p = 1/(r + 1) = 1/100001
 const prob_tp MAX_PROB = 1 << PROB_SHIFT;  // with r [Mbps] = 1/p - 1 = 2^20 Mbps = 1Tbps
@@ -140,12 +143,14 @@ PragueCC::PragueCC(
     m_lost_window = 0;
     m_loss_packets_lost = 0;
     m_loss_packets_sent = 0;
+    m_lost_rtts_to_growth = 0;
     // for congestion experienced and window reduction (cwr) calculation
     m_cwr_ts = 0;
     m_cwr_packets_sent = 0;
     // state updated for the actual congestion control variables
     m_cc_state = cs_init;
     m_cca_mode = cca_prague_win;
+    m_rtts_to_growth= init_rate / RATE_STEP + MIN_STEP;   // virtual rtts before going into growth mode
     m_alpha = 0;
     m_pacing_rate = init_rate;
     m_fractional_window = m_init_window;
@@ -260,6 +265,9 @@ bool PragueCC::ACKReceived(    // call this when an ACK (or a Frame ACK) is rece
         m_alpha_packets_CE = packets_CE;
         m_alpha_packets_received = packets_received;
         m_alpha_ts = ts;
+        // also reduce the rtts to growth if not already 0
+        if (m_rtts_to_growth > 0)
+            m_rtts_to_growth--;
     }
     // Undo that window reduction if the lost count is again down to the one that caused a reduction (reordered iso loss)
     if (m_lost_window && (m_loss_packets_lost - packets_lost >= 0)) {
@@ -271,15 +279,25 @@ bool PragueCC::ACKReceived(    // call this when an ACK (or a Frame ACK) is rece
             m_fractional_window += m_lost_window;  // add the reduction to the window again
             m_lost_window = 0;                     // can be done only once
         }
+        m_rtts_to_growth -= m_lost_rtts_to_growth; // restore the rtts to growth
+        if (m_rtts_to_growth < 0)
+            m_rtts_to_growth = 0;
+        m_lost_rtts_to_growth = 0;                 // clear all lost growth rtts
         m_cc_state = cs_cong_avoid;                // restore the loss state
     }
-    // Clear the in_loss state if in_loss and a real and vrtual rtt are passed
+    // Clear the in_loss state if in_loss and a real and virtual rtt are passed
     if ((m_cc_state == cs_in_loss) && (packets_received + packets_lost - m_loss_packets_sent > 0) && (ts - m_loss_ts - m_vrtt >= 0)) {
         m_cc_state = cs_cong_avoid;                // set the loss state to avoid multiple reductions per RTT
         // keep all loss info for undo if later reordering is found (loss is reduced to m_loss_packets_lost again)
     }
     // Reduce the window if the loss count is increased
     if ((m_cc_state != cs_in_loss) && (m_packets_lost - packets_lost < 0)) {
+        // first reset the growth waiting time, but prepare to undo
+        count_tp rtts_to_growth = m_pacing_rate / RATE_STEP + MIN_STEP;
+        m_lost_rtts_to_growth += rtts_to_growth - m_rtts_to_growth;  // accumulate over different reordering rtts if applicable
+        if (m_lost_rtts_to_growth > rtts_to_growth)
+            m_lost_rtts_to_growth = rtts_to_growth;  // no need to undo more than what will be used next
+        m_rtts_to_growth = rtts_to_growth;        // also equivalent to m_rtts_to_growth += m_lost_rtts_to_growth; so can be undone with -=
         if (m_cca_mode == cca_prague_win) {
             m_lost_window = m_fractional_window / 2;  // remember the reduction
             m_fractional_window -= m_lost_window;     // reduce the window
@@ -306,11 +324,16 @@ bool PragueCC::ACKReceived(    // call this when an ACK (or a Frame ACK) is rece
     // Increase the window if not in-loss for all the non-CE ACKs
     count_tp acks = (packets_received - m_packets_received) - (packets_CE - m_packets_CE);
     if ((m_cc_state != cs_in_loss) && (acks > 0))
-    {   // W[p] = W + acks / W * (srrt/vrtt)², but in the right order to not lose precision
+    {
+        size_tp increment = m_pacing_rate * QUEUE_GROWTH / 1000000;  // incr = B/s * 1ms
+        if ((increment < m_max_packet_size) || m_rtts_to_growth)     // increment with 1ms queue delay if no more rtts to wait for growth and if > than 1 max packet
+            increment = m_max_packet_size;
+
+        // W[p] = W + acks / W * (srrt/vrtt)², but in the right order to not lose precision
         // W[µB] = W + acks * mtu² * 1000000² / W * (srrt/vrtt)²
         // correct order to prevent loss of precision
         if (m_cca_mode == cca_prague_win) {
-            m_fractional_window += acks * m_packet_size * srtt * 1000000 / m_vrtt * m_max_packet_size * srtt / m_vrtt * 1000000 / m_fractional_window;
+            m_fractional_window += acks * m_packet_size * srtt * 1000000 / m_vrtt * increment * srtt / m_vrtt * 1000000 / m_fractional_window;
         } else if (m_cca_mode == cca_cubic) { // Cubic code is still unfinished. Don't use for now.
             // Linux Cubic implementation includes further (1) check to stop
             // increasing cwnd when it reaches last_Wmax in a short period,
@@ -336,7 +359,7 @@ bool PragueCC::ACKReceived(    // call this when an ACK (or a Frame ACK) is rece
             //printf("time: %d, K: %u, offs: %lu, delta: %lu/%lu, pkt: %lu, rtt_min: %d, RTT_SCALED: %lu, count: %lu, target: %lu, fw: %lu\n", t, m_cubic_K, offs, (C_SCALED * offs * offs * offs) * m_packet_size, delta, m_packet_size, m_rtt_min, RTT_SCALED, count, target, m_fractional_window);
             m_fractional_window += acks * m_max_packet_size * srtt * 1000000 / m_vrtt * srtt / m_vrtt * count / m_fractional_window;
         } else {
-            m_pacing_rate += acks * m_max_packet_size * 1000000 / m_vrtt * m_packet_size / m_vrtt * 1000000 / m_pacing_rate;
+            m_pacing_rate += acks * increment * 1000000 / m_vrtt * m_packet_size / m_vrtt * 1000000 / m_pacing_rate;
         }
     }
 
@@ -346,6 +369,7 @@ bool PragueCC::ACKReceived(    // call this when an ACK (or a Frame ACK) is rece
     }
     // Reduce the window if the CE count is increased, and if not in-loss and not in-cwr
     if ((m_cc_state == cs_cong_avoid) && (m_packets_CE - packets_CE < 0)) {
+        m_rtts_to_growth = m_pacing_rate / RATE_STEP + MIN_STEP; // first reset the growth waiting time
         if (m_cca_mode == cca_cubic)
             m_cca_mode = cca_prague_win; // use Prague in case of marks
         if (m_cca_mode == cca_prague_win) {
@@ -459,6 +483,8 @@ void PragueCC::ResetCCInfo()     // call this when there is a RTO detected
     m_packet_burst = MIN_PKT_BURST;
     m_packet_size = m_max_packet_size;
     m_packet_window = MIN_PKT_WIN;
+    m_rtts_to_growth = m_pacing_rate / RATE_STEP + MIN_STEP;   // virtual rtts before going into growth mode
+    m_lost_rtts_to_growth = 0;
 }
 
 void PragueCC::GetTimeInfo(          // when the any-app needs to send a packet
