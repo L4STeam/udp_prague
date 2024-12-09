@@ -11,40 +11,6 @@
 // to avoid int64 printf incompatibility between platforms:
 #define C_STR(i) std::to_string(i).c_str()
 
-// bit to Byte integer
-rate_tp bit_atoi_byte(const char *inString)
-{
-    double theNum;
-    char suffix = '\0';
-    // scan the number and any suffices
-    sscanf_s(inString, "%lf%c", &theNum, &suffix, sizeof(suffix));
-
-    /* convert according to [Gg Mm Kk] */
-    switch (suffix) {
-    case 'G':
-        theNum *= (1024 * 1024 * 1024);
-        break;
-    case 'g':
-        theNum *= (1000 * 1000 * 1000);
-        break;
-    case 'M':
-        theNum *= (1024 * 1024);
-        break;
-    case 'm':
-        theNum *= (1000 * 1000);
-        break;
-    case 'K':
-        theNum *= (1024);
-        break;
-    case 'k':
-        theNum *= (1000);
-        break;
-    default:
-        break;
-    }
-    return (rate_tp) (theNum / 8.0);
-}
-
 // app related stuff collected in this object to avoid obfuscation of the main Prague loop
 struct AppStuff
 {
@@ -80,7 +46,7 @@ struct AppStuff
             if (arg == "-a" && i + 1 < argc) {
                 rcv_addr = argv[++i];
             } else if (arg == "-b" && i + 1 < argc) {
-                max_rate = bit_atoi_byte(argv[++i]);
+                max_rate = atoi(argv[++i]) * 125;  // from kbps to B/s
             } else if (arg == "-p" && i + 1 < argc) {
                 rcv_port = atoi(argv[++i]);
             } else if (arg == "-c") {
@@ -97,7 +63,7 @@ struct AppStuff
                     "    -a <IP address, def: 0.0.0.0 or 127.0.0.1 if client>\n"
                     "    -p <server port, def: 8080>\n"
                     "    -c (connect first as a client, otherwise bind and wait for connection)\n"
-                    "    -b <sender specific max bitrate, def: %s bps>\n"
+                    "    -b <sender specific max bitrate, def: %s kbps>\n"
                     "    -m <sender specific max packet size, def: %s B>\n"
                     "    -v (for verbose prints)\n"
                     "    -q (quiet)\n",
