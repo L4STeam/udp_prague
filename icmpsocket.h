@@ -41,7 +41,7 @@ public:
     {
         sockfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP);
         if (int(sockfd) < 0) {
-	    // Check `net.ipv4.ping_group_range` in sysctl
+            // Check `net.ipv4.ping_group_range` in sysctl
             perror("ICMP socket creation failed (DGRAM).\n");
             exit(1);
         }
@@ -83,7 +83,7 @@ public:
         if (len > 0)
             sum += *(uint8_t*)buf;
         sum = (sum >> 16) + (sum & 0xFFFF);
-	sum += (sum >> 16);
+        sum += (sum >> 16);
         return ~sum;
     }
 

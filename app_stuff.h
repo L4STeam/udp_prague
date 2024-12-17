@@ -35,6 +35,14 @@ struct AppStuff
     count_tp prev_packets;  // prev packets received
     count_tp prev_marks;    // prev marks received
     count_tp prev_losts;    // prev losts received
+
+    void ExitIf(bool stop, const char* reason)
+    {
+        if (stop) {
+            perror(reason);
+            exit(1);
+        }
+    }
     AppStuff(bool sender, int argc, char **argv):
         sender_role(sender), verbose(false), quiet(false), rcv_addr("0.0.0.0"), rcv_port(8080), connect(false),
         max_pkt(PRAGUE_INITMTU), max_rate(PRAGUE_MAXRATE), data_tm(1), ack_tm(1), rept_tm(1000000),
@@ -46,13 +54,19 @@ struct AppStuff
             if (arg == "-a" && i + 1 < argc) {
                 rcv_addr = argv[++i];
             } else if (arg == "-b" && i + 1 < argc) {
-                max_rate = atoi(argv[++i]) * 125;  // from kbps to B/s
+                char *p;
+                max_rate = strtoull(argv[++i], &p, 10) * 125; // from kbps to B/s
+                ExitIf(errno != 0 || *p != '\0', "Error during converting max bitrate");
             } else if (arg == "-p" && i + 1 < argc) {
-                rcv_port = atoi(argv[++i]);
+                char *p;
+                rcv_port = strtoul(argv[++i], &p, 10);
+                ExitIf(errno != 0 || *p != '\0' || rcv_port > 65535, "Error during converting max port");
             } else if (arg == "-c") {
                 connect = true;
             } else if (arg == "-m" && i + 1 < argc) {
-                max_pkt = atoi(argv[++i]);
+                char *p;
+                max_pkt = strtoull(argv[++i], &p, 10);
+                ExitIf(errno != 0 || *p != '\0', "Error during converting max packet size");
             } else if (arg == "-v") {
                 verbose = true;
                 quiet = true;
@@ -67,7 +81,7 @@ struct AppStuff
                     "    -m <sender specific max packet size, def: %s B>\n"
                     "    -v (for verbose prints)\n"
                     "    -q (quiet)\n",
-                    sender_role ? "sender" : "receiver", C_STR(8*PRAGUE_MAXRATE), C_STR(PRAGUE_INITMTU));
+                    sender_role ? "sender" : "receiver", C_STR(PRAGUE_MAXRATE / 125), C_STR(PRAGUE_INITMTU));
                 exit(1);
             }
         }
@@ -196,13 +210,6 @@ struct AppStuff
                 prev_marks = packets_CE;
                 prev_losts = packets_lost;
             }
-        }
-    }
-    void ExitIf(bool stop, const char* reason)
-    {
-        if (stop) {
-            perror(reason);
-            exit(1);
         }
     }
 };
