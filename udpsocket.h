@@ -23,6 +23,11 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#elif __APPLE__
+#include <unistd.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #endif
 #include "prague_cc.h"
 
@@ -71,12 +76,21 @@ public:
             perror("WSAStartup failed.\n");
             exit(1);
         }
-#else
+#elif defined(__linux__) || defined(__FreeBSD__)
         if (geteuid() == 0) {
             struct sched_param sp;
             sp.sched_priority = sched_get_priority_max(SCHED_RR);
             // SCHED_OTHER, SCHED_FIFO, SCHED_RR
             if (sched_setscheduler(0, SCHED_RR, &sp) < 0) {
+                perror("Client set scheduler");
+            }
+        }
+#elif __APPLE__
+        if (geteuid() == 0) {
+            struct sched_param sp;
+            sp.sched_priority = sched_get_priority_max(SCHED_RR);
+            // SCHED_OTHER, SCHED_FIFO, SCHED_RR
+            if (pthread_setschedparam(pthread_self(), SCHED_RR, &sp) < 0) {
                 perror("Client set scheduler");
             }
         }
@@ -109,7 +123,6 @@ public:
             perror("setsockopt for IP_RECVTOS/IPV6_RECVTCLASS failed.\n");
             exit(1);
         }
-
 #else
         unsigned int set = 1;
         if (setsockopt(sockfd, IPPROTO_IP, IP_RECVTOS, &set, sizeof(set)) < 0) {
@@ -303,5 +316,4 @@ public:
 #endif
     }
 };
-
 #endif //UDPSOCKET_H
