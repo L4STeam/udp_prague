@@ -249,6 +249,7 @@ bool PragueCC::ACKReceived(    // call this when an ACK (or a Frame ACK) is rece
     }
     // Undo that window reduction if the lost count is again down to the one that caused a reduction (reordered iso loss)
     if (m_lost_window && (m_loss_packets_lost - packets_lost >= 0)) {
+        m_cca_mode = m_loss_cca;                   // restore the cca mode before recovery
         if (m_cca_mode == cca_prague_rate) {
             m_pacing_rate += m_lost_rate;          // add the reduction to the rate again
             m_lost_rate = 0;                       // can be done only once
@@ -256,7 +257,6 @@ bool PragueCC::ACKReceived(    // call this when an ACK (or a Frame ACK) is rece
             m_fractional_window += m_lost_window;  // add the reduction to the window again
             m_lost_window = 0;                     // can be done only once
         }
-        m_cca_mode = m_loss_cca;                   // restore the cca
         m_cc_state = cs_cong_avoid;                // restore the loss state
     }
     // Clear the in_loss state if in_loss and a real and vrtual rtt are passed
