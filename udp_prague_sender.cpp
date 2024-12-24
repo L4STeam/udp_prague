@@ -73,9 +73,11 @@ int main(int argc, char **argv)
     count_tp packet_window;  // allowed maximum packets in-flight
     count_tp packet_burst;   // allowed number of packets to send back-to-back; pacing interval needs to be taken into account for the next burst only
     size_tp packet_size;     // packet size is reduced when rates are low to preserve 2 packets per 25ms pacing interval
+    ecn_tp new_ecn;
 
     ecn_tp rcv_ecn;
     size_tp bytes_received = 0;
+    time_tp compRecv = 0;
 
     // wait for a trigger packet, otherwise just start sending
     if (!app.connect) {
@@ -93,36 +95,31 @@ int main(int argc, char **argv)
     pragueCC.GetCCInfo(pacing_rate, packet_window, packet_burst, packet_size);
     while (true) {
         count_tp inburst = 0;  // packets in-burst counter
-        time_tp timeout = 0;   // pacing or retransmission interval time
         time_tp startSend = 0; // next time to send
         now = pragueCC.Now();
         // if the window and pacing interval allows, send the next burst
         while ((inflight < packet_window) && (inburst < packet_burst) && (nextSend - now <= 0)) {
-            ecn_tp new_ecn;
             pragueCC.GetTimeInfo(data_msg.timestamp, data_msg.echoed_timestamp, new_ecn);
-            if (startSend == 0)
+            if (!startSend)
                 startSend = now;
             data_msg.seq_nr = ++seqnr;
             app.LogSendData(now, data_msg.timestamp, data_msg.echoed_timestamp, seqnr, packet_size,
                 pacing_rate, packet_window, packet_burst, inflight, inburst, nextSend);
             data_msg.hton();
-            size_tp bytes_sent = us.Send((char*)(&data_msg), packet_size, new_ecn);
-            app.ExitIf(bytes_sent != packet_size, "invalid data packet length sent");
+            app.ExitIf(us.Send((char*)(&data_msg), packet_size, new_ecn) != packet_size, "invalid data packet length sent");
             inburst++;
             inflight++;
         }
         if (startSend != 0) {
-            nextSend = time_tp(startSend + packet_size * inburst * 1000000 / pacing_rate);
+            nextSend = time_tp(startSend + compRecv + packet_size * inburst * 1000000 / pacing_rate);
+            compRecv = 0;
         }
-        time_tp waitTimeout = 0;
+        time_tp waitTimeout = nextSend;
         now = pragueCC.Now();
-        if (inflight < packet_window)
-            waitTimeout = nextSend;
-        else
+        if (inflight >= packet_window)
             waitTimeout = now + 1000000;
         do {
-            timeout = (waitTimeout - now > 0) ? (waitTimeout - now) : 1;
-            bytes_received = us.Receive(receivebuffer, sizeof(receivebuffer), rcv_ecn, timeout);
+            bytes_received = us.Receive(receivebuffer, sizeof(receivebuffer), rcv_ecn, (waitTimeout - now > 0) ? (waitTimeout - now) : 1);
             now = pragueCC.Now();
         } while ((bytes_received == 0) && (waitTimeout - now > 0));
         if (bytes_received >= ssize_t(sizeof(ack_msg))) {
@@ -132,13 +129,21 @@ int main(int argc, char **argv)
             app.LogRecvACK(now, ack_msg.timestamp, ack_msg.echoed_timestamp, seqnr, bytes_received,
                 ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, ack_msg.error_L4S,
                 pacing_rate, packet_window, packet_burst, inflight, inburst, nextSend);
-        }
-        else // timeout, reset state
+
+            pragueCC.GetCCInfo(pacing_rate, packet_window, packet_burst, packet_size);
+            now = pragueCC.Now();
+            if (waitTimeout - now <= 0) {
+                // Exceed time will be compensated
+                compRecv += (waitTimeout - now);
+            }
+        } else {
             if (inflight >= packet_window) {
                 pragueCC.ResetCCInfo();
                 inflight = 0;
-		perror("Reset PragueCC\n");
+                perror("Reset PragueCC\n");
+                pragueCC.GetCCInfo(pacing_rate, packet_window, packet_burst, packet_size);
+                nextSend = now;
             }
-        pragueCC.GetCCInfo(pacing_rate, packet_window, packet_burst, packet_size);
+        }
     }
 }
