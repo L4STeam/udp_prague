@@ -223,15 +223,19 @@ bool PragueCC::ACKReceived(    // call this when an ACK (or a Frame ACK) is rece
         m_fractional_window = srtt * m_pacing_rate;
         m_cc_state = cs_cong_avoid;
     }
-    if ((srtt <= 2000) || (srtt <= pacing_interval)) {
-        // keep rate stable when large dip in srtt
-        m_cca_mode = cca_prague_rate;
-    }
-    else {
-        // keep rate stable when large jump in srtt
-        if (m_cca_mode == cca_prague_rate)
-            m_fractional_window = srtt * m_pacing_rate;
-        m_cca_mode = cca_prague_win;
+    if (m_packets_CE == 0 && packets_CE == 0) {
+        m_cca_mode = cca_cubic;
+    } else {
+        if ((srtt <= 2000) || (srtt <= pacing_interval)) {
+            // keep rate stable when large dip in srtt
+            m_cca_mode = cca_prague_rate;
+        }
+        else {
+            // keep rate stable when large jump in srtt
+            if (m_cca_mode == cca_prague_rate)
+                m_fractional_window = srtt * m_pacing_rate;
+            m_cca_mode = cca_prague_win;
+        }
     }
     time_tp ts = Now();
     // Update alpha if both a window and a virtual rtt are passed
@@ -332,8 +336,6 @@ bool PragueCC::ACKReceived(    // call this when an ACK (or a Frame ACK) is rece
     }
     // Reduce the window if the CE count is increased, and if not in-loss and not in-cwr
     if ((m_cc_state == cs_cong_avoid) && (m_packets_CE - packets_CE < 0)) {
-        if (m_cca_mode == cca_cubic)
-            m_cca_mode = cca_prague_win; // use Prague in case of marks
         if (m_cca_mode == cca_prague_win) {
             m_fractional_window -= m_fractional_window * m_alpha >> (PROB_SHIFT + 1);   // reduce the window by a factor alpha/2
         } else {
