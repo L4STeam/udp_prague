@@ -59,7 +59,7 @@ struct rfc8888ack_t {
             report[i] = htons(report[i]);
             if ((report[i] & 0x8000) >> 15) {
                 pkts_received++;
-                pkts_CE += ((report[i] & 0x6000) >> 13 == 0x3);
+                pkts_CE += ((report[i] & 0x6000) >> 13 == ecn_ce);
                 err_L4S |= ((report[i] & 0x2000) >> 13 == 0x0);
                 pkts_rtt[num_rtt++] = now - ((report[i] & 0x1FFF) << 10) - sendtime[(begin_seq + i) % TIME_BUFFER_SIZE];
                 //printf("RTT: %d, NOW: %d, Rep: %d, SEND: %d, seq: %u, i: %u, idx: %u\n",
@@ -161,6 +161,8 @@ int main(int argc, char **argv)
                     recvtime[seq_idx] = now;
                     recvecn[seq_idx] = rcv_ecn;
                     recvseq[seq_idx] = 1;
+                } else {
+                    recvecn[seq_idx] = (rcv_ecn == ecn_ce) ? ecn_ce : recvecn[seq_idx];
                 }
             }
 
