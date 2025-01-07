@@ -8,6 +8,7 @@
 #include "app_stuff.h"
 
 #define BUFFER_SIZE 8192       // in bytes (depending on MTU)
+#define TIME_BUFFER_SIZE 16384 // [RFC8888] each report MUST NOT include more than 16384 blocks
 
 #pragma pack(push, 1)
 struct datamessage_t {
@@ -23,6 +24,7 @@ struct datamessage_t {
 };
 
 struct ackmessage_t {
+    uint8_t type;
     time_tp timestamp;         // timestamp from peer, freeze and keep this time
     time_tp echoed_timestamp;  // echoed_timestamp can be used to calculate the RTT
     count_tp packets_received; // echoed_packet counter
@@ -31,11 +33,59 @@ struct ackmessage_t {
     bool error_L4S;            // receiver found a bleached/error ECN; stop using L4S_id on the sending packets!
 
     void hton() {              // swap the bytes if needed
+        type = 1;
         timestamp = htonl(timestamp);
         echoed_timestamp = htonl(echoed_timestamp);
         packets_received = htonl(packets_received);
         packets_CE = htonl(packets_CE);
         packets_lost = htonl(packets_lost);
+    }
+};
+
+struct rfc8888ack_t {
+    uint8_t type;
+    count_tp begin_seq;        // Use 32-bit sequence number
+    uint16_t num_reports;
+    uint16_t report[BUFFER_SIZE / 4];
+
+    uint16_t get_minsize() {
+        return sizeof(type) + sizeof(begin_seq) + sizeof(num_reports);
+    }
+    uint16_t get_stat(time_tp now, time_tp *sendtime, time_tp *pkts_rtt, count_tp &pkts_received, count_tp &pkts_lost, count_tp &pkts_CE, bool &err_L4S) {
+        uint16_t num_rtt = 0;
+        begin_seq = htonl(begin_seq);
+        num_reports = htons(num_reports);
+        for (uint16_t i = 0; i < num_reports; i++) {
+            report[i] = htons(report[i]);
+            if ((report[i] & 0x8000) >> 15) {
+                pkts_received++;
+                pkts_CE += ((report[i] & 0x6000) >> 13 == 0x3);
+                err_L4S |= ((report[i] & 0x2000) >> 13 == 0x0);
+                pkts_rtt[num_rtt++] = now - ((report[i] & 0x1FFF) << 10) - sendtime[(begin_seq + i) % TIME_BUFFER_SIZE];
+                //printf("RTT: %d, NOW: %d, Rep: %d, SEND: %d, seq: %u, i: %u, idx: %u\n",
+                //    pkts_rtt[num_rtt-1], now, report[i], sendtime[(begin_seq + i) % TIME_BUFFER_SIZE], begin_seq, i, (begin_seq + i) % TIME_BUFFER_SIZE);
+            } else {
+                pkts_lost++;
+            }
+        }
+        return num_rtt;
+    }
+    uint16_t set_stat(count_tp &seq, count_tp &max_seq, time_tp now, time_tp *recvtime, ecn_tp *recvecn, bool *recvseq) {
+        uint16_t reports = std::min(max_seq - seq, (count_tp) BUFFER_SIZE / 4);
+        begin_seq = seq;
+        for (uint16_t i = 0; i < reports; i++, seq++) {
+            if (recvseq[(begin_seq + i) % TIME_BUFFER_SIZE]) {
+                report[i] = htons((0x1 << 15) + ((recvecn[(begin_seq + i) % TIME_BUFFER_SIZE] & 0x3) << 13) +
+                    (((now - recvtime[(begin_seq + i) % TIME_BUFFER_SIZE] + (1 << 9)) >> 10) & 0x1FFF));
+                recvseq[(begin_seq + i) % TIME_BUFFER_SIZE] = 0;
+            } else
+                report[i] = htons(0);
+        }
+
+        type = 2;
+        begin_seq = htonl(begin_seq);
+        num_reports = htons(reports);
+        return reports * sizeof(uint16_t) + sizeof(type) + sizeof(begin_seq) + sizeof(num_reports);
     }
 };
 #pragma pack(pop)
@@ -61,41 +111,94 @@ int main(int argc, char **argv)
     time_tp now = pragueCC.Now();  // for reporting only
     ecn_tp new_ecn;
 
+    // RFC8888 buffer
+    struct rfc8888ack_t rfc8888_ackmsg;
+    count_tp start_seq = 0, end_seq = 0;
+    time_tp rfc8888_acktime = now + app.rfc8888_ackperiod;
+    time_tp recvtime[TIME_BUFFER_SIZE] = {0};
+    ecn_tp recvecn[TIME_BUFFER_SIZE] = {ecn_not_ect};
+    bool recvseq[TIME_BUFFER_SIZE] = {false};
+
     if (app.connect) { // send a trigger ACK packet, otherwise just wait for data
         pragueCC.GetTimeInfo(ack_msg.timestamp, ack_msg.echoed_timestamp, new_ecn);
         pragueCC.GetACKInfo(ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, ack_msg.error_L4S);
         ack_msg.hton();  // swap byte order if needed
-        size_tp bytes_sent = us.Send((char*)(&ack_msg), sizeof(ack_msg), new_ecn);
-        app.ExitIf(bytes_sent != sizeof(ack_msg), "Invalid ack packet length sent.\n");
+        app.ExitIf(us.Send((char*)(&ack_msg), sizeof(ack_msg), new_ecn) != sizeof(ack_msg), "Invalid ack packet length sent.\n");
     }
 
     while (true) {
+        now = pragueCC.Now();
+
         // Wait for an incoming data message
         ecn_tp rcv_ecn = ecn_not_ect;
-        size_tp bytes_received = us.Receive(receivebuffer, sizeof(receivebuffer), rcv_ecn, 0);
+        size_tp bytes_received = 0;
+        time_tp waitTime = (app.rfc8888_ack && start_seq != end_seq) ? ((rfc8888_acktime - now > 0) ? (rfc8888_acktime - now) : 1) : 0;
 
-        while (bytes_received == 0) {   // repeat if timeout or interrupted
-            bytes_received = us.Receive(receivebuffer, sizeof(receivebuffer), rcv_ecn, 0);
+        do {   // repeat if timeout or interrupted
+            bytes_received = us.Receive(receivebuffer, sizeof(receivebuffer), rcv_ecn, waitTime);
+        } while(bytes_received == 0 && waitTime == 0);
+
+        if (bytes_received != 0) {
+            // Extract the data message
+            now = pragueCC.Now();
+            data_msg.hton();  // swap byte order
+            app.LogRecvData(now, data_msg.timestamp, data_msg.echoed_timestamp, data_msg.seq_nr, bytes_received);
+
+            if (app.rfc8888_ack) {
+                uint16_t seq_idx = data_msg.seq_nr % TIME_BUFFER_SIZE;
+                if (start_seq == end_seq) {
+                    start_seq = data_msg.seq_nr;
+                    end_seq = data_msg.seq_nr + 1;
+                } else {
+                    // [start_seq, end_seq) data will be ACKed
+                    if (data_msg.seq_nr >= start_seq && data_msg.seq_nr < start_seq + TIME_BUFFER_SIZE) {
+                      end_seq = std::max(end_seq, data_msg.seq_nr + 1);
+                    } else if (data_msg.seq_nr < end_seq && data_msg.seq_nr >= end_seq - TIME_BUFFER_SIZE) {
+                      start_seq = std::min(start_seq, data_msg.seq_nr);
+                    } else if (data_msg.seq_nr >= start_seq && start_seq > start_seq + TIME_BUFFER_SIZE && end_seq > start_seq) {
+                      // Handle start_seq wrap-around
+                      end_seq = (data_msg.seq_nr + 1 > start_seq) ? std::max(end_seq, data_msg.seq_nr + 1) : (data_msg.seq_nr + 1);
+                    } else if (data_msg.seq_nr < start_seq + TIME_BUFFER_SIZE && start_seq > start_seq + TIME_BUFFER_SIZE) {
+                      // Handle start_seq wrap-around
+                      end_seq = (end_seq < start_seq + TIME_BUFFER_SIZE) ? std::max(end_seq, data_msg.seq_nr + 1) : (data_msg.seq_nr + 1);
+                    } else if (data_msg.seq_nr < end_seq && end_seq < end_seq - TIME_BUFFER_SIZE && start_seq < end_seq) {
+                      // Handle end_seq wrap-around
+                      start_seq = std::min(start_seq, data_msg.seq_nr);
+                    } else if (data_msg.seq_nr >= end_seq - TIME_BUFFER_SIZE && end_seq < end_seq - TIME_BUFFER_SIZE) {
+                      // Handle end_seq wrap-around
+                      start_seq = (start_seq >= end_seq - TIME_BUFFER_SIZE) ? std::min(start_seq, data_msg.seq_nr) : data_msg.seq_nr;
+                    }
+                }
+                if (!recvseq[seq_idx]) {
+                    recvtime[seq_idx] = now;
+                    recvecn[seq_idx] = rcv_ecn;
+                    recvseq[seq_idx] = 1;
+                }
+            }
+
+            // Pass the relevant data to the PragueCC object:
+            pragueCC.PacketReceived(data_msg.timestamp, data_msg.echoed_timestamp);
+            pragueCC.DataReceivedSequence(rcv_ecn, data_msg.seq_nr);
         }
 
-        // Extract the data message
         now = pragueCC.Now();
-        data_msg.hton();  // swap byte order
-        app.LogRecvData(now, data_msg.timestamp, data_msg.echoed_timestamp, data_msg.seq_nr, bytes_received);
+        if (!app.rfc8888_ack) {
+            // Return a corresponding acknowledge message
+            pragueCC.GetTimeInfo(ack_msg.timestamp, ack_msg.echoed_timestamp, new_ecn);
+            pragueCC.GetACKInfo(ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, ack_msg.error_L4S);
 
-        // Pass the relevant data to the PragueCC object:
-        pragueCC.PacketReceived(data_msg.timestamp, data_msg.echoed_timestamp);
-        pragueCC.DataReceivedSequence(rcv_ecn, data_msg.seq_nr);
+            app.LogSendACK(now, ack_msg.timestamp, ack_msg.echoed_timestamp, data_msg.seq_nr, sizeof(ack_msg),
+                ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, ack_msg.error_L4S);
 
-        // Return a corresponding acknowledge message
-        pragueCC.GetTimeInfo(ack_msg.timestamp, ack_msg.echoed_timestamp, new_ecn);
-        pragueCC.GetACKInfo(ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, ack_msg.error_L4S);
+            ack_msg.hton();  // swap byte order if needed
+            app.ExitIf(us.Send((char*)(&ack_msg), sizeof(ack_msg), new_ecn) != sizeof(ack_msg), "Invalid ack packet length sent.\n");
+        } else if (rfc8888_acktime - now <= 0) {
+            uint16_t rfc8888_acksize = rfc8888_ackmsg.set_stat(start_seq, end_seq, now, recvtime, recvecn, recvseq);
+            app.ExitIf(us.Send((char*)(&rfc8888_ackmsg), rfc8888_acksize, ecn_l4s_id) != rfc8888_acksize, "Invalid RFC8888 ack packetlength sent.");
+            app.LogSendRFC8888ACK(now, data_msg.seq_nr, rfc8888_acksize,
+                htonl(rfc8888_ackmsg.begin_seq), htons(rfc8888_ackmsg.num_reports), rfc8888_ackmsg.report);
 
-        app.LogSendACK(now, ack_msg.timestamp, ack_msg.echoed_timestamp, data_msg.seq_nr, sizeof(ack_msg),
-                       ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, ack_msg.error_L4S);
-
-        ack_msg.hton();  // swap byte order if needed
-        size_tp bytes_sent = us.Send((char*)(&ack_msg), sizeof(ack_msg), new_ecn);
-        app.ExitIf(bytes_sent != sizeof(ack_msg), "Invalid ack packet length sent.\n");
+            rfc8888_acktime = now + app.rfc8888_ackperiod;
+        }
     }
 }

@@ -101,6 +101,10 @@ public:
 
     time_tp Now();             // will have to return a monotonic increasing signed int 32 which will wrap around (after 4000 seconds)
 
+    bool RFC8888Received(
+        size_t num_rtt,
+        time_tp *pkts_rtt);
+
     bool PacketReceived(       // call this when a packet is received from peer, returns false if the old packet is ignored
         time_tp timestamp,         // timestamp from peer, freeze and keep this time
         time_tp echoed_timestamp); // echoed_timestamp can be used to calculate the RTT

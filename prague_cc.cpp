@@ -184,6 +184,20 @@ time_tp PragueCC::Now() // Returns number of µs since first call
     return now;
 }
 
+bool PragueCC::RFC8888Received(size_t num_rtt, time_tp *pkts_rtt) {
+
+    for (size_t i = 0; i < num_rtt; i++) {
+        m_rtt = pkts_rtt[i];
+        m_rtt_min = (m_rtt_min > m_rtt) ? m_rtt : m_rtt_min;
+        if (m_cc_state != cs_init)
+            m_srtt += (m_rtt - m_srtt) >> 3;
+        else
+            m_srtt = m_rtt;
+        m_vrtt = (m_srtt > REF_RTT) ? m_srtt : REF_RTT;
+    }
+    return true;
+}
+
 bool PragueCC::PacketReceived(         // call this when a packet is received from peer. Returns true if this is a newer packet, false if this is an older
     const time_tp timestamp,           // timestamp from peer, freeze and keep this time
     const time_tp echoed_timestamp)    // echoed_timestamp can be used to calculate the RTT
