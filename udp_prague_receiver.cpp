@@ -151,22 +151,10 @@ int main(int argc, char **argv)
                     end_seq = data_msg.seq_nr + 1;
                 } else {
                     // [start_seq, end_seq) data will be ACKed
-                    if (data_msg.seq_nr >= start_seq && data_msg.seq_nr < start_seq + TIME_BUFFER_SIZE) {
-                      end_seq = std::max(end_seq, data_msg.seq_nr + 1);
-                    } else if (data_msg.seq_nr < end_seq && data_msg.seq_nr >= end_seq - TIME_BUFFER_SIZE) {
-                      start_seq = std::min(start_seq, data_msg.seq_nr);
-                    } else if (data_msg.seq_nr >= start_seq && start_seq > start_seq + TIME_BUFFER_SIZE && end_seq > start_seq) {
-                      // Handle start_seq wrap-around
-                      end_seq = (data_msg.seq_nr + 1 > start_seq) ? std::max(end_seq, data_msg.seq_nr + 1) : (data_msg.seq_nr + 1);
-                    } else if (data_msg.seq_nr < start_seq + TIME_BUFFER_SIZE && start_seq > start_seq + TIME_BUFFER_SIZE) {
-                      // Handle start_seq wrap-around
-                      end_seq = (end_seq < start_seq + TIME_BUFFER_SIZE) ? std::max(end_seq, data_msg.seq_nr + 1) : (data_msg.seq_nr + 1);
-                    } else if (data_msg.seq_nr < end_seq && end_seq < end_seq - TIME_BUFFER_SIZE && start_seq < end_seq) {
-                      // Handle end_seq wrap-around
-                      start_seq = std::min(start_seq, data_msg.seq_nr);
-                    } else if (data_msg.seq_nr >= end_seq - TIME_BUFFER_SIZE && end_seq < end_seq - TIME_BUFFER_SIZE) {
-                      // Handle end_seq wrap-around
-                      start_seq = (start_seq >= end_seq - TIME_BUFFER_SIZE) ? std::min(start_seq, data_msg.seq_nr) : data_msg.seq_nr;
+                    if (start_seq - data_msg.seq_nr <= 0 && start_seq + TIME_BUFFER_SIZE - data_msg.seq_nr > 0 && data_msg.seq_nr + 1 - end_seq > 0) {
+                      end_seq = data_msg.seq_nr + 1;
+                    } else if (end_seq - data_msg.seq_nr > 0 && end_seq - TIME_BUFFER_SIZE - data_msg.seq_nr <= 0 && data_msg.seq_nr - start_seq < 0) {
+                      start_seq = data_msg.seq_nr;
                     }
                 }
                 if (!recvseq[seq_idx]) {
@@ -193,10 +181,12 @@ int main(int argc, char **argv)
             ack_msg.hton();  // swap byte order if needed
             app.ExitIf(us.Send((char*)(&ack_msg), sizeof(ack_msg), new_ecn) != sizeof(ack_msg), "Invalid ack packet length sent.\n");
         } else if (rfc8888_acktime - now <= 0) {
-            uint16_t rfc8888_acksize = rfc8888_ackmsg.set_stat(start_seq, end_seq, now, recvtime, recvecn, recvseq);
-            app.ExitIf(us.Send((char*)(&rfc8888_ackmsg), rfc8888_acksize, ecn_l4s_id) != rfc8888_acksize, "Invalid RFC8888 ack packetlength sent.");
-            app.LogSendRFC8888ACK(now, data_msg.seq_nr, rfc8888_acksize,
-                htonl(rfc8888_ackmsg.begin_seq), htons(rfc8888_ackmsg.num_reports), rfc8888_ackmsg.report);
+            while (start_seq != end_seq) {
+                uint16_t rfc8888_acksize = rfc8888_ackmsg.set_stat(start_seq, end_seq, now, recvtime, recvecn, recvseq);
+                app.ExitIf(us.Send((char*)(&rfc8888_ackmsg), rfc8888_acksize, ecn_l4s_id) != rfc8888_acksize, "Invalid RFC8888 ack packetlength sent.");
+                app.LogSendRFC8888ACK(now, data_msg.seq_nr, rfc8888_acksize,
+                    htonl(rfc8888_ackmsg.begin_seq), htons(rfc8888_ackmsg.num_reports), rfc8888_ackmsg.report);
+            }
 
             rfc8888_acktime = now + app.rfc8888_ackperiod;
         }
