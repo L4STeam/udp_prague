@@ -9,7 +9,10 @@
 #include "app_stuff.h"
 
 #define BUFFER_SIZE 8192       // in bytes (depending on MTU)
+#define REPORT_SIZE (BUFFER_SIZE / 4)
 #define TIME_BUFFER_SIZE 16384 // [RFC8888] each report MUST NOT include more than 16384 blocks
+
+enum pktstat_tp {pkt_init = 0, pkt_sent, pkt_recv, pkt_lost};
 
 #pragma pack(push, 1)
 struct datamessage_t {
@@ -45,34 +48,53 @@ struct ackmessage_t {
 
 struct rfc8888ack_t {
     uint8_t type;
-    count_tp begin_seq;      // Use 32-bit sequence number
+    count_tp begin_seq;        // Use 32-bit sequence number
     uint16_t num_reports;
-    uint16_t report[BUFFER_SIZE / 4];
+    uint16_t report[REPORT_SIZE];
 
     uint16_t get_minsize() {
         return sizeof(type) + sizeof(begin_seq) + sizeof(num_reports);
     }
-    uint16_t get_stat(time_tp now, time_tp *sendtime, time_tp *pkts_rtt, count_tp &pkts_received, count_tp &pkts_lost, count_tp &pkts_CE, bool &err_L4S) {
+    uint16_t get_stat(time_tp now, time_tp *sendtime, time_tp *pkt_rtt, count_tp &received, count_tp &lost, count_tp &mark, bool &error, pktstat_tp *pkt_stat, count_tp &last_ackseq) {
         uint16_t num_rtt = 0;
         begin_seq = htonl(begin_seq);
         num_reports = htons(num_reports);
-        for (uint16_t i = 0; i < num_reports; i++) {
+        while (last_ackseq + 1 - begin_seq < 0) {
+            if (pkt_stat[(last_ackseq + 1) % TIME_BUFFER_SIZE] == pkt_sent) {
+                lost++;
+                //printf("LOST, miss: %d, pkt_stat: %u\n", last_ackseq + 1, pkt_stat[(last_ackseq + 1) % TIME_BUFFER_SIZE]);
+                pkt_stat[(last_ackseq + 1) % TIME_BUFFER_SIZE] = pkt_lost;
+            }
+            last_ackseq++;
+        }
+        for (uint16_t i = 0; i < num_reports; i++, last_ackseq++) {
+            uint16_t idx = (begin_seq + i) % TIME_BUFFER_SIZE;
             report[i] = htons(report[i]);
             if ((report[i] & 0x8000) >> 15) {
-                pkts_received++;
-                pkts_CE += ((report[i] & 0x6000) >> 13 == 0x3);
-                err_L4S |= ((report[i] & 0x2000) >> 13 == 0x0);
-                pkts_rtt[num_rtt++] = now - ((report[i] & 0x1FFF) << 10) - sendtime[(begin_seq + i) % TIME_BUFFER_SIZE];
-                //printf("RTT: %d, NOW: %d, Rep: %d, SEND: %d, seq: %u, i: %u, idx: %u\n",
-                //    pkts_rtt[num_rtt-1], now, report[i], sendtime[(begin_seq + i) % TIME_BUFFER_SIZE], begin_seq, i, (begin_seq + i) % TIME_BUFFER_SIZE);
+                if (pkt_stat[idx] == pkt_sent || pkt_stat[idx] == pkt_lost) {
+                    received++;
+                    mark += ((report[i] & 0x6000) >> 13 == ecn_ce);
+                    error |= ((report[i] & 0x2000) >> 13 == 0x0);
+                    pkt_rtt[num_rtt++] = now - ((report[i] & 0x1FFF) << 10) - sendtime[idx];
+                    if (pkt_stat[idx] == pkt_lost)
+                        lost--;
+                    //printf("RTT: %d, NOW: %d, Rep: %d, SEND: %d, seq: %u, num_reports: %u, idx: %u, pkt_stat: %u\n",
+                    //    pkt_rtt[num_rtt-1], now, report[i], sendtime[idx], begin_seq, num_reports, idx, pkt_stat[idx]);
+                    pkt_stat[idx] = pkt_recv;
+                }
             } else {
-                pkts_lost++;
+                if (pkt_stat[idx] == pkt_sent) {
+                    lost++;
+                    //printf("LOST, idx: %u, pkt_stat: %u\n", idx, pkt_stat[idx]);
+                    pkt_stat[idx] = pkt_lost;
+                }
             }
         }
         return num_rtt;
     }
-    uint16_t set_stat(count_tp &seq, count_tp &max_seq, time_tp now, time_tp *recvtime, ecn_tp *recvecn, bool *recvseq) {
-        uint16_t reports = std::min(max_seq - seq, (count_tp) BUFFER_SIZE / 4);
+    uint16_t set_stat(count_tp &seq, count_tp &max_seq, time_tp now, time_tp *recvtime, ecn_tp *recvecn, bool *recvseq, size_tp max_pkt) {
+        uint16_t rptsize = sizeof(type) + sizeof(begin_seq) + sizeof(num_reports);
+        uint16_t reports = std::min(max_seq - seq, (count_tp)((max_pkt - rptsize) / sizeof(uint16_t)));
         begin_seq = seq;
         for (uint16_t i = 0; i < reports; i++, seq++) {
             if (recvseq[(begin_seq + i) % TIME_BUFFER_SIZE]) {
@@ -81,12 +103,13 @@ struct rfc8888ack_t {
                 recvseq[(begin_seq + i) % TIME_BUFFER_SIZE] = 0;
             } else
                 report[i] = htons(0);
+            rptsize += sizeof(uint16_t);
         }
 
         type = 2;
         begin_seq = htonl(begin_seq);
         num_reports = htons(reports);
-        return reports * sizeof(uint16_t) + sizeof(type) + sizeof(begin_seq) + sizeof(num_reports);
+        return rptsize;
     }
 };
 #pragma pack(pop)
@@ -114,7 +137,9 @@ int main(int argc, char **argv)
     // RFC8888 buffer
     struct rfc8888ack_t& rfc8888_ackmsg = (struct rfc8888ack_t&)(receivebuffer);  // overlaying the receive buffer
     time_tp sendtime[TIME_BUFFER_SIZE] = {0};
-    time_tp pkts_rtt[TIME_BUFFER_SIZE] = {0};
+    pktstat_tp pkt_stat[TIME_BUFFER_SIZE] = {pkt_init};
+    time_tp pkts_rtt[REPORT_SIZE] = {0};
+    count_tp last_ackseq = 0;   // Last received ACK sequence
     count_tp pkts_received = 0; // Receivd packets counter for RFC8888 feedback
     count_tp pkts_CE = 0;       // CE packets counter for RFC8888 feedback
     count_tp pkts_lost = 0;     // Lost packets counter for RFC8888 feedback
@@ -167,6 +192,7 @@ int main(int argc, char **argv)
             data_msg.hton();
             app.ExitIf(us.Send((char*)(&data_msg), packet_size, new_ecn) != packet_size, "invalid data packet length sent");
             sendtime[seqnr % TIME_BUFFER_SIZE] = startSend;
+            pkt_stat[seqnr % TIME_BUFFER_SIZE] = pkt_sent;
             inburst++;
             inflight++;
         }
@@ -197,7 +223,7 @@ int main(int argc, char **argv)
                 compRecv += (waitTimeout - now);
             }
         } else if (receivebuffer[0] == 2 && bytes_received >= rfc8888_ackmsg.get_minsize()) {
-            uint16_t num_rtt = rfc8888_ackmsg.get_stat(now, sendtime, pkts_rtt, pkts_received, pkts_lost, pkts_CE, err_L4S);
+            uint16_t num_rtt = rfc8888_ackmsg.get_stat(now, sendtime, pkts_rtt, pkts_received, pkts_lost, pkts_CE, err_L4S, pkt_stat, last_ackseq);
             if (num_rtt) {
                 pragueCC.RFC8888Received(num_rtt, pkts_rtt);
                 pragueCC.ACKReceived(pkts_received, pkts_CE, pkts_lost, seqnr, err_L4S, inflight);
