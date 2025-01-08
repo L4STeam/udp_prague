@@ -94,7 +94,7 @@ struct AppStuff
                     "    -p <server port, def: 8080>\n"
                     "    -c (connect first as a client, otherwise bind and wait for connection)\n"
                     "    -b <sender specific max bitrate, def: %s kbps>\n"
-                    "    -m <sender specific max packet size, def: %s B>\n"
+                    "    -m <max packet/ACK size, def: %s B>\n"
                     "    -v (for verbose prints)\n"
                     "    -q (quiet)\n"
                     "    --rfc8888 (RFC8888 feddback)"

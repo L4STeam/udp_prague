@@ -52,8 +52,8 @@ struct rfc8888ack_t {
     uint16_t num_reports;
     uint16_t report[REPORT_SIZE];
 
-    uint16_t get_minsize() {
-        return sizeof(type) + sizeof(begin_seq) + sizeof(num_reports);
+    uint16_t get_size(uint16_t rptsize) {
+        return sizeof(uint16_t) * rptsize + sizeof(type) + sizeof(begin_seq) + sizeof(num_reports);
     }
     uint16_t get_stat(time_tp now, time_tp *sendtime, time_tp *pkt_rtt, count_tp &received, count_tp &lost, count_tp &mark, bool &error, pktstat_tp *pkt_stat, count_tp &last_ackseq) {
         uint16_t num_rtt = 0;
@@ -222,7 +222,7 @@ int main(int argc, char **argv)
                 // Exceed time will be compensated
                 compRecv += (waitTimeout - now);
             }
-        } else if (receivebuffer[0] == 2 && bytes_received >= rfc8888_ackmsg.get_minsize()) {
+        } else if (receivebuffer[0] == 2 && bytes_received >= rfc8888_ackmsg.get_size(0)) {
             uint16_t num_rtt = rfc8888_ackmsg.get_stat(now, sendtime, pkts_rtt, pkts_received, pkts_lost, pkts_CE, err_L4S, pkt_stat, last_ackseq);
             if (num_rtt) {
                 pragueCC.RFC8888Received(num_rtt, pkts_rtt);
@@ -233,7 +233,7 @@ int main(int argc, char **argv)
             app.LogRecvRFC8888ACK(now, seqnr, bytes_received, rfc8888_ackmsg.begin_seq, rfc8888_ackmsg.num_reports,
                 num_rtt, pkts_rtt, pkts_received, pkts_CE, pkts_lost, err_L4S,
                 pacing_rate, packet_window, packet_burst, inflight, inburst, nextSend);
-            //printf("Inflight: %d, pkt_recv:%u, pkt_lost: %u, pkt_CE: %u, pkt_win: %d, pacing: %ld\n", inflight, pkts_received, pkts_lost, pkts_CE, packet_window, pacing_rate);
+            //printf("Now: %d, Inflight: %d, pkt_recv:%u, pkt_lost: %u, pkt_CE: %u, pkt_win: %d, pacing: %ld\n", now, inflight, pkts_received, pkts_lost, pkts_CE, packet_window, pacing_rate);
             now = pragueCC.Now();
             if (waitTimeout - now <= 0) {
                 // Exceed time will be compensated

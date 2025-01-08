@@ -51,8 +51,8 @@ struct rfc8888ack_t {
     uint16_t num_reports;
     uint16_t report[REPORT_SIZE];
 
-    uint16_t get_minsize() {
-        return sizeof(type) + sizeof(begin_seq) + sizeof(num_reports);
+    uint16_t get_size(uint16_t rptsize) {
+        return sizeof(uint16_t) * rptsize + sizeof(type) + sizeof(begin_seq) + sizeof(num_reports);
     }
     uint16_t get_stat(time_tp now, time_tp *sendtime, time_tp *pkt_rtt, count_tp &received, count_tp &lost, count_tp &mark, bool &error, pktstat_tp *pkt_stat, count_tp &last_ackseq) {
         uint16_t num_rtt = 0;
@@ -141,6 +141,10 @@ int main(int argc, char **argv)
     time_tp recvtime[TIME_BUFFER_SIZE] = {0};
     ecn_tp recvecn[TIME_BUFFER_SIZE] = {ecn_not_ect};
     bool recvseq[TIME_BUFFER_SIZE] = {false};
+    if (app.rfc8888_ack && app.max_pkt < rfc8888_ackmsg.get_size(1)) {
+        perror("Reset maximum ACK size\n");
+        app.max_pkt = rfc8888_ackmsg.get_size(1);
+    }
 
     if (app.connect) { // send a trigger ACK packet, otherwise just wait for data
         pragueCC.GetTimeInfo(ack_msg.timestamp, ack_msg.echoed_timestamp, new_ecn);
