@@ -150,18 +150,19 @@ int main(int argc, char **argv)
 
     // outside PragueCC CC-loop state
     time_tp now = pragueCC.Now();
-    time_tp nextSend = now;  // time to send the next burst
-    count_tp seqnr = 0;      // sequence number of last sent packet (first sequence number will be 1)
-    count_tp inflight = 0;   // packets in-flight counter
-    rate_tp pacing_rate;     // used for pacing the packets with the right interval (not taking into account the bursts)
-    count_tp packet_window;  // allowed maximum packets in-flight
-    count_tp packet_burst;   // allowed number of packets to send back-to-back; pacing interval needs to be taken into account for the next burst only
-    size_tp packet_size;     // packet size is reduced when rates are low to preserve 2 packets per 25ms pacing interval
+    time_tp nextSend = now;     // time to send the next burst
+    count_tp seqnr = 0;         // sequence number of last sent packet (first sequence number will be 1)
+    count_tp inflight = 0;      // packets in-flight counter
+    rate_tp pacing_rate;        // used for pacing the packets with the right interval (not taking into account the bursts)
+    count_tp packet_window;     // allowed maximum packets in-flight
+    count_tp packet_burst;      // allowed number of packets to send back-to-back; pacing interval needs to be taken into account for the next burst only
+    size_tp packet_size;        // packet size is reduced when rates are low to preserve 2 packets per 25ms pacing interval
     ecn_tp new_ecn;
 
     ecn_tp rcv_ecn;
     size_tp bytes_received = 0;
-    time_tp compRecv = 0;
+    time_tp compRecv = 0;       // send time compensation
+    time_tp waitTimeout = 0;    // time to wait for ACK receiving
 
     // wait for a trigger packet, otherwise just start sending
     if (!app.connect) {
@@ -178,8 +179,8 @@ int main(int argc, char **argv)
     // get initial CC state
     pragueCC.GetCCInfo(pacing_rate, packet_window, packet_burst, packet_size);
     while (true) {
-        count_tp inburst = 0;  // packets in-burst counter
-        time_tp startSend = 0; // next time to send
+        count_tp inburst = 0;   // packets in-burst counter
+        time_tp startSend = 0;  // next time to send
         now = pragueCC.Now();
         // if the window and pacing interval allows, send the next burst
         while ((inflight < packet_window) && (inburst < packet_burst) && (nextSend - now <= 0)) {
@@ -200,7 +201,7 @@ int main(int argc, char **argv)
             nextSend = time_tp(startSend + compRecv + packet_size * inburst * 1000000 / pacing_rate);
             compRecv = 0;
         }
-        time_tp waitTimeout = nextSend;
+        waitTimeout = nextSend;
         now = pragueCC.Now();
         if (inflight >= packet_window)
             waitTimeout = now + 1000000;
@@ -217,11 +218,6 @@ int main(int argc, char **argv)
             app.LogRecvACK(now, ack_msg.timestamp, ack_msg.echoed_timestamp, seqnr, bytes_received,
                 ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, ack_msg.error_L4S,
                 pacing_rate, packet_window, packet_burst, inflight, inburst, nextSend);
-            now = pragueCC.Now();
-            if (waitTimeout - now <= 0) {
-                // Exceed time will be compensated
-                compRecv += (waitTimeout - now);
-            }
         } else if (receivebuffer[0] == 2 && bytes_received >= rfc8888_ackmsg.get_size(0)) {
             uint16_t num_rtt = rfc8888_ackmsg.get_stat(now, sendtime, pkts_rtt, pkts_received, pkts_lost, pkts_CE, err_L4S, pkt_stat, last_ackseq);
             if (num_rtt) {
@@ -233,12 +229,6 @@ int main(int argc, char **argv)
             app.LogRecvRFC8888ACK(now, seqnr, bytes_received, rfc8888_ackmsg.begin_seq, rfc8888_ackmsg.num_reports,
                 num_rtt, pkts_rtt, pkts_received, pkts_CE, pkts_lost, err_L4S,
                 pacing_rate, packet_window, packet_burst, inflight, inburst, nextSend);
-            //printf("Now: %d, Inflight: %d, pkt_recv:%u, pkt_lost: %u, pkt_CE: %u, pkt_win: %d, pacing: %ld\n", now, inflight, pkts_received, pkts_lost, pkts_CE, packet_window, pacing_rate);
-            now = pragueCC.Now();
-            if (waitTimeout - now <= 0) {
-                // Exceed time will be compensated
-                compRecv += (waitTimeout - now);
-            }
         } else {
             if (inflight >= packet_window) {
                 pragueCC.ResetCCInfo();
@@ -247,6 +237,11 @@ int main(int argc, char **argv)
                 pragueCC.GetCCInfo(pacing_rate, packet_window, packet_burst, packet_size);
                 nextSend = now;
             }
+        }
+        now = pragueCC.Now();
+        if (inflight && waitTimeout - now <= 0) {
+            // Exceed time will be compensated (except reset)
+            compRecv += (waitTimeout - now);
         }
     }
 }

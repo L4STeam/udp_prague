@@ -100,7 +100,7 @@ PragueCC::PragueCC(
     time_tp ts_now = Now();
 // parameters
     m_init_rate = init_rate;
-    m_init_window = window_tp(init_window)*max_packet_size * 1000000;
+    m_init_window = window_tp(init_window) * max_packet_size * 1000000;
     m_min_rate = min_rate;
     m_max_rate = max_rate;
     m_max_packet_size = max_packet_size;
@@ -189,8 +189,8 @@ time_tp PragueCC::Now() // Returns number of µs since first call
     return now;
 }
 
-bool PragueCC::RFC8888Received(size_t num_rtt, time_tp *pkts_rtt) {
-
+bool PragueCC::RFC8888Received(size_t num_rtt, time_tp *pkts_rtt)
+{
     for (size_t i = 0; i < num_rtt; i++) {
         m_rtt = pkts_rtt[i];
         m_rtt_min = (m_rtt_min > m_rtt) ? m_rtt : m_rtt_min;
@@ -384,12 +384,12 @@ bool PragueCC::ACKReceived(    // call this when an ACK (or a Frame ACK) is rece
 
     // Updating dependant parameters
     if (m_cca_mode != cca_prague_rate)
-        m_pacing_rate = m_fractional_window / srtt;  // in B/s
+        m_pacing_rate = m_fractional_window / srtt;   // in B/s
     if (m_pacing_rate < m_min_rate)
         m_pacing_rate = m_min_rate;
     if (m_pacing_rate > m_max_rate)
         m_pacing_rate = m_max_rate;
-    m_fractional_window = m_pacing_rate * srtt;  // in uB
+    m_fractional_window = m_pacing_rate * srtt;       // in uB
 
     if (m_fractional_window == 0)
         m_fractional_window = 1;
@@ -407,7 +407,7 @@ bool PragueCC::ACKReceived(    // call this when an ACK (or a Frame ACK) is rece
     if (m_packet_burst < MIN_PKT_BURST) {
         m_packet_burst = MIN_PKT_BURST;
     }
-    m_packet_window = count_tp((m_fractional_window/1000000 + m_packet_size -1)/m_packet_size);
+    m_packet_window = count_tp((m_fractional_window / 1000000 + m_packet_size - 1) / m_packet_size);
     if (m_packet_window < MIN_PKT_WIN) {
         m_packet_window = MIN_PKT_WIN;
     }
@@ -479,7 +479,7 @@ void PragueCC::ResetCCInfo()     // call this when there is a RTO detected
     m_alpha_ts = m_cc_ts;
     m_alpha = 0;
     m_pacing_rate = m_init_rate;
-    m_fractional_window = m_max_packet_size*1000000; // reset to 1 packet
+    m_fractional_window = m_max_packet_size * 1000000; // reset to 1 packet
     m_packet_burst = MIN_PKT_BURST;
     m_packet_size = m_max_packet_size;
     m_packet_window = MIN_PKT_WIN;
