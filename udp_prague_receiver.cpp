@@ -93,7 +93,7 @@ struct rfc8888ack_t {
     }
     uint16_t set_stat(count_tp &seq, count_tp &max_seq, time_tp now, time_tp *recvtime, ecn_tp *recvecn, bool *recvseq, size_tp max_pkt) {
         uint16_t rptsize = sizeof(type) + sizeof(begin_seq) + sizeof(num_reports);
-        uint16_t reports = std::min(max_seq - seq, (count_tp)((max_pkt - rptsize) / sizeof(uint16_t)));
+        uint16_t reports = max_seq - seq > (count_tp)((max_pkt - rptsize) / sizeof(uint16_t)) ? (count_tp)((max_pkt - rptsize) / sizeof(uint16_t)) : max_seq - seq;
         begin_seq = seq;
         for (uint16_t i = 0; i < reports; i++, seq++) {
             if (recvseq[(begin_seq + i) % TIME_BUFFER_SIZE]) {
