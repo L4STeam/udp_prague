@@ -12,6 +12,8 @@
 #define C_STR(i) std::to_string(i).c_str()
 #define REPT_PERIOD 1000000
 #define RFC8888_ACKPERIOD 25000
+#define FRAME_PER_SECOND 60
+#define FRAME_DURATION 10000
 
 // app related stuff collected in this object to avoid obfuscation of the main Prague loop
 struct AppStuff
@@ -37,8 +39,11 @@ struct AppStuff
     count_tp prev_pkts;     // prev packets received
     count_tp prev_marks;    // prev marks received
     count_tp prev_losts;    // prev losts received
-    bool rfc8888_ack;
-    uint32_t rfc8888_ackperiod;
+    bool rfc8888_ack;       // RFC8888 ACK (Block ACK)
+    uint32_t rfc8888_ackperiod; // RFC8888 ACK period
+    bool rt_mode;           // Frame-based sender
+    fps_tp rt_fps;          // Frame-based FPS
+    uint32_t rt_frameduration;  // Frame-based frame duration
 
     void ExitIf(bool stop, const char* reason)
     {
@@ -51,7 +56,8 @@ struct AppStuff
         sender_role(sender), verbose(false), quiet(false), rcv_addr("0.0.0.0"), rcv_port(8080), connect(false),
         max_pkt(PRAGUE_INITMTU), max_rate(PRAGUE_MAXRATE), data_tm(1), ack_tm(1), rept_tm(REPT_PERIOD),
         acc_bytes_sent(0), acc_bytes_rcvd(0), acc_rtts(0), count_rtts(0), prev_pkts(0), prev_marks(0), prev_losts(0),
-        rfc8888_ack(false), rfc8888_ackperiod(RFC8888_ACKPERIOD)
+        rfc8888_ack(false), rfc8888_ackperiod(RFC8888_ACKPERIOD),
+        rt_mode(false), rt_fps(FRAME_PER_SECOND), rt_frameduration(FRAME_DURATION)
     {
         parseArgs(argc, argv);
         printInfo();
@@ -88,6 +94,16 @@ struct AppStuff
                 char *p;
                 rfc8888_ackperiod = strtoul(argv[++i], &p, 10);
                 ExitIf(errno != 0 || *p != '\0', "Error during converting RFC8888 ACK period");
+            } else if (arg == "--rtmode") {
+                rt_mode = true;
+            } else if (arg == "--fps") {
+                char *p;
+                rt_fps = strtoul(argv[++i], &p, 10);
+                ExitIf(errno != 0 || *p != '\0', "Error during converting RT mode frame per second");
+            } else if (arg == "--frameduration") {
+                char *p;
+                rt_frameduration = strtoul(argv[++i], &p, 10);
+                ExitIf(errno != 0 || *p != '\0', "Error during converting RT mode frame duration");
             } else {
                 printf("UDP Prague %s usage:\n"
                     "    -a <IP address, def: 0.0.0.0 or 127.0.0.1 if client>\n"
@@ -97,9 +113,13 @@ struct AppStuff
                     "    -m <max packet/ACK size, def: %s B>\n"
                     "    -v (for verbose prints)\n"
                     "    -q (quiet)\n"
-                    "    --rfc8888 (RFC8888 feddback)"
-                    "    --rfc8888ackperiod <RFC8888 ACK period, def %s ms>",
-                    sender_role ? "sender" : "receiver", C_STR(PRAGUE_MAXRATE / 125), C_STR(PRAGUE_INITMTU), C_STR(RFC8888_ACKPERIOD / 1000));
+                    "    --rfc8888 (RFC8888 feddback)\n"
+                    "    --rfc8888ackperiod <RFC8888 ACK period, def %s us>\n"
+                    "    --rtmode (Real-Time mode)\n"
+                    "    --fps <Frame-per-second, def %s fps>\n"
+                    "    --frameduration <Frame duration, def %s us>\n",
+                    sender_role ? "sender" : "receiver", C_STR(PRAGUE_MAXRATE / 125), C_STR(PRAGUE_INITMTU),
+                    C_STR(RFC8888_ACKPERIOD), C_STR(FRAME_PER_SECOND), C_STR(FRAME_DURATION));
                 exit(1);
             }
         }
@@ -107,6 +127,8 @@ struct AppStuff
             rcv_addr = "127.0.0.1";
         if (max_rate < PRAGUE_MINRATE || max_rate > PRAGUE_MAXRATE)
             max_rate = PRAGUE_MAXRATE;
+        if (rt_mode && rt_fps * rt_frameduration > 1000000)
+            rt_frameduration = 1000000 / rt_fps;
     }
     void printInfo()
     {
@@ -135,6 +157,19 @@ struct AppStuff
             printf("s: %d, %d, %d, %d, %d, %s,,,,, %s, %d, %d, %d, %d, %d\n",
                 now, timestamp, echoed_timestamp, timestamp - data_tm, seqnr, C_STR(packet_size),
                 C_STR(pacing_rate), packet_window, packet_burst, inflight, inburst, nextSend - now);
+            data_tm = timestamp;
+        }
+        if (!quiet) acc_bytes_sent += packet_size;
+    }
+    void LogSendFrameData(time_tp now, time_tp timestamp, time_tp echoed_timestamp, count_tp seqnr, size_tp packet_size,
+        rate_tp pacing_rate, count_tp frame_window, count_tp frame_size, count_tp packet_burst, count_tp frame_inflight, count_tp frame_sent, count_tp inburst, time_tp nextSend)
+    {
+        if (verbose) {
+            // "s: time, timestamp, echoed_timestamp, time_diff, seqnr, packet_size,,,,, "
+            // "pacing_rate, frame_window, frame_size, packet_burst, frame_inflight, frame_sent, inburst, nextSend"
+            printf("s: %d, %d, %d, %d, %d, %s,,,,, %s, %d, %d, %d, %d, %d, %d, %d\n",
+                now, timestamp, echoed_timestamp, timestamp - data_tm, seqnr, C_STR(packet_size),
+                C_STR(pacing_rate), frame_window, frame_size, packet_burst, frame_inflight, frame_sent, inburst, nextSend - now);
             data_tm = timestamp;
         }
         if (!quiet) acc_bytes_sent += packet_size;

@@ -533,7 +533,7 @@ void PragueCC::GetCCInfoVideo( // when the sending app needs to send a frame
     pacing_rate = m_pacing_rate;
     packet_burst = m_packet_burst;
     packet_size = m_packet_size;
-    frame_size = m_pacing_rate * m_frame_budget / 1000000;
+    frame_size = (m_packet_size > m_pacing_rate * m_frame_budget / 1000000) ? (m_packet_size) : (m_pacing_rate * m_frame_budget / 1000000);
     frame_window = m_packet_window * m_packet_size / frame_size;
 }
 

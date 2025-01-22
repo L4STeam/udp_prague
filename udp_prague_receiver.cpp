@@ -10,7 +10,6 @@
 #define BUFFER_SIZE 8192      // in bytes (depending on MTU)
 #define REPORT_SIZE (BUFFER_SIZE / 4)
 #define PKT_BUFFER_SIZE 65536 // [RFC8888] calculated using arithmetic modulo 65536
-
 #define SND_TIMEOUT 1000000   // Sender timeout in us when window-limited
 #define RCV_TIMEOUT 250000    // Receive timeout for a previously-receiving packet
 
@@ -19,14 +18,32 @@ enum pktrecv_tp {rcv_init = 0, rcv_recv, rcv_ackd, rcv_lost};
 
 #pragma pack(push, 1)
 struct datamessage_t {
+    uint8_t type;
     time_tp timestamp;         // timestamp from peer, freeze and keep this time
     time_tp echoed_timestamp;  // echoed_timestamp can be used to calculate the RTT
     count_tp seq_nr;           // packet sequence number, should start with 1 and increase monotonic with packets sent
 
     void hton() {              // swap the bytes if needed
+        type = 1;
         timestamp = htonl(timestamp);
         echoed_timestamp = htonl(echoed_timestamp);
         seq_nr = htonl(seq_nr);
+    }
+};
+
+struct framemessage_t {
+    uint8_t type;
+    time_tp timestamp;         // timestamp from peer, freeze and keep this time
+    time_tp echoed_timestamp;  // echoed_timestamp can be used to calculate the RTT
+    count_tp seq_nr;           // packet sequence number, should start with 1 and increase monotonic with packets sent
+    count_tp frame_nr;         // frame sequence number, also start with 1 and increase monitonically
+
+    void hton() {              // swap the bytes if needed
+        type = 2;
+        timestamp = htonl(timestamp);
+        echoed_timestamp = htonl(echoed_timestamp);
+        seq_nr = htonl(seq_nr);
+        frame_nr = htonl(frame_nr);
     }
 };
 
