@@ -198,7 +198,10 @@ int main(int argc, char **argv)
             inflight++;
         }
         if (startSend != 0) {
-            nextSend = time_tp(startSend + compRecv + packet_size * inburst * 1000000 / pacing_rate);
+            if (compRecv + packet_size * inburst * 1000000 / pacing_rate <= 0)
+                nextSend = time_tp(startSend + 1);
+            else
+                nextSend = time_tp(startSend + compRecv + packet_size * inburst * 1000000 / pacing_rate);
             compRecv = 0;
         }
         waitTimeout = nextSend;
