@@ -8,11 +8,15 @@
 //#include "icmpsocket.h" TODO: optimize MTU detection
 #include "app_stuff.h"
 
-#define BUFFER_SIZE 8192       // in bytes (depending on MTU)
+#define BUFFER_SIZE 8192      // in bytes (depending on MTU)
 #define REPORT_SIZE (BUFFER_SIZE / 4)
-#define TIME_BUFFER_SIZE 16384 // [RFC8888] each report MUST NOT include more than 16384 blocks
+#define PKT_BUFFER_SIZE 65536 // [RFC8888] calculated using arithmetic modulo 65536
 
-enum pktstat_tp {pkt_init = 0, pkt_sent, pkt_recv, pkt_lost};
+#define SND_TIMEOUT 1000000   // Sender timeout in us when window-limited
+#define RCV_TIMEOUT 250000    // Receive timeout for a previously-receiving packet
+
+enum pktsend_tp {snd_init = 0, snd_sent, snd_recv, snd_lost};
+enum pktrecv_tp {rcv_init = 0, rcv_recv, rcv_ackd, rcv_lost};
 
 #pragma pack(push, 1)
 struct datamessage_t {
@@ -55,54 +59,52 @@ struct rfc8888ack_t {
     uint16_t get_size(uint16_t rptsize) {
         return sizeof(uint16_t) * rptsize + sizeof(type) + sizeof(begin_seq) + sizeof(num_reports);
     }
-    uint16_t get_stat(time_tp now, time_tp *sendtime, time_tp *pkt_rtt, count_tp &received, count_tp &lost, count_tp &mark, bool &error, pktstat_tp *pkt_stat, count_tp &last_ackseq) {
+    uint16_t get_stat(time_tp now, time_tp *sendtime, time_tp *pkt_rtt, count_tp &received, count_tp &lost, count_tp &mark, bool &error, pktsend_tp *pkt_stat, count_tp &last_ackseq) {
         uint16_t num_rtt = 0;
         begin_seq = htonl(begin_seq);
         num_reports = htons(num_reports);
         while (last_ackseq + 1 - begin_seq < 0) {
-            if (pkt_stat[(last_ackseq + 1) % TIME_BUFFER_SIZE] == pkt_sent) {
+            if (pkt_stat[(last_ackseq + 1) % PKT_BUFFER_SIZE] == snd_sent) {
                 lost++;
-                //printf("LOST, miss: %d, pkt_stat: %u\n", last_ackseq + 1, pkt_stat[(last_ackseq + 1) % TIME_BUFFER_SIZE]);
-                pkt_stat[(last_ackseq + 1) % TIME_BUFFER_SIZE] = pkt_lost;
+                pkt_stat[(last_ackseq + 1) % PKT_BUFFER_SIZE] = snd_lost;
             }
             last_ackseq++;
         }
         for (uint16_t i = 0; i < num_reports; i++, last_ackseq++) {
-            uint16_t idx = (begin_seq + i) % TIME_BUFFER_SIZE;
+            uint16_t idx = (begin_seq + i) % PKT_BUFFER_SIZE;
             report[i] = htons(report[i]);
             if ((report[i] & 0x8000) >> 15) {
-                if (pkt_stat[idx] == pkt_sent || pkt_stat[idx] == pkt_lost) {
+                if (pkt_stat[idx] == snd_sent || pkt_stat[idx] == snd_lost) {
                     received++;
                     mark += ((report[i] & 0x6000) >> 13 == ecn_ce);
                     error |= ((report[i] & 0x2000) >> 13 == 0x0);
                     pkt_rtt[num_rtt++] = now - ((report[i] & 0x1FFF) << 10) - sendtime[idx];
-                    if (pkt_stat[idx] == pkt_lost)
+                    if (pkt_stat[idx] == snd_lost)
                         lost--;
-                    //printf("RTT: %d, NOW: %d, Rep: %d, SEND: %d, seq: %u, num_reports: %u, idx: %u, pkt_stat: %u\n",
-                    //    pkt_rtt[num_rtt-1], now, report[i], sendtime[idx], begin_seq, num_reports, idx, pkt_stat[idx]);
-                    pkt_stat[idx] = pkt_recv;
+                    pkt_stat[idx] = snd_recv;
                 }
             } else {
-                if (pkt_stat[idx] == pkt_sent) {
+                if (pkt_stat[idx] == snd_sent) {
                     lost++;
-                    //printf("LOST, idx: %u, pkt_stat: %u\n", idx, pkt_stat[idx]);
-                    pkt_stat[idx] = pkt_lost;
+                    pkt_stat[idx] = snd_lost;
                 }
             }
         }
         return num_rtt;
     }
-    uint16_t set_stat(count_tp &seq, count_tp &max_seq, time_tp now, time_tp *recvtime, ecn_tp *recvecn, bool *recvseq, size_tp max_pkt) {
+    uint16_t set_stat(count_tp &seq, count_tp maxseq, time_tp now, time_tp *recvtime, ecn_tp *recvecn, pktrecv_tp *recvseq, size_tp maxpkt) {
         uint16_t rptsize = sizeof(type) + sizeof(begin_seq) + sizeof(num_reports);
-        uint16_t reports = max_seq - seq > (count_tp)((max_pkt - rptsize) / sizeof(uint16_t)) ? (count_tp)((max_pkt - rptsize) / sizeof(uint16_t)) : max_seq - seq;
+        uint16_t reports = maxseq - seq > (count_tp)((maxpkt - rptsize) / sizeof(uint16_t)) ? (count_tp)((maxpkt - rptsize) / sizeof(uint16_t)) : maxseq - seq;
         begin_seq = seq;
         for (uint16_t i = 0; i < reports; i++, seq++) {
-            if (recvseq[(begin_seq + i) % TIME_BUFFER_SIZE]) {
-                report[i] = htons((0x1 << 15) + ((recvecn[(begin_seq + i) % TIME_BUFFER_SIZE] & 0x3) << 13) +
-                    (((now - recvtime[(begin_seq + i) % TIME_BUFFER_SIZE] + (1 << 9)) >> 10) & 0x1FFF));
-                recvseq[(begin_seq + i) % TIME_BUFFER_SIZE] = 0;
-            } else
+            uint16_t idx = (begin_seq + i) % PKT_BUFFER_SIZE;
+            if (recvseq[idx] == rcv_recv || (recvseq[idx] == rcv_ackd && recvtime[idx] + RCV_TIMEOUT - now > 0)) {
+                report[i] = htons((0x1 << 15) + ((recvecn[idx] & 0x3) << 13) + (((now - recvtime[idx] + (1 << 9)) >> 10) & 0x1FFF));
+                recvseq[idx] = rcv_ackd;
+            } else {
                 report[i] = htons(0);
+                recvseq[idx] = rcv_lost;
+            }
             rptsize += sizeof(uint16_t);
         }
 
@@ -136,8 +138,8 @@ int main(int argc, char **argv)
 
     // RFC8888 buffer
     struct rfc8888ack_t& rfc8888_ackmsg = (struct rfc8888ack_t&)(receivebuffer);  // overlaying the receive buffer
-    time_tp sendtime[TIME_BUFFER_SIZE] = {0};
-    pktstat_tp pkt_stat[TIME_BUFFER_SIZE] = {pkt_init};
+    time_tp sendtime[PKT_BUFFER_SIZE] = {0};
+    pktsend_tp pkt_stat[PKT_BUFFER_SIZE] = {snd_init};
     time_tp pkts_rtt[REPORT_SIZE] = {0};
     count_tp last_ackseq = 0;   // Last received ACK sequence
     count_tp pkts_received = 0; // Receivd packets counter for RFC8888 feedback
@@ -192,8 +194,8 @@ int main(int argc, char **argv)
                 pacing_rate, packet_window, packet_burst, inflight, inburst, nextSend);
             data_msg.hton();
             app.ExitIf(us.Send((char*)(&data_msg), packet_size, new_ecn) != packet_size, "invalid data packet length sent");
-            sendtime[seqnr % TIME_BUFFER_SIZE] = startSend;
-            pkt_stat[seqnr % TIME_BUFFER_SIZE] = pkt_sent;
+            sendtime[seqnr % PKT_BUFFER_SIZE] = startSend;
+            pkt_stat[seqnr % PKT_BUFFER_SIZE] = snd_sent;
             inburst++;
             inflight++;
         }
@@ -207,7 +209,7 @@ int main(int argc, char **argv)
         waitTimeout = nextSend;
         now = pragueCC.Now();
         if (inflight >= packet_window)
-            waitTimeout = now + 1000000;
+            waitTimeout = now + SND_TIMEOUT;
         do {
             bytes_received = us.Receive(receivebuffer, sizeof(receivebuffer), rcv_ecn, (waitTimeout - now > 0) ? (waitTimeout - now) : 1);
             now = pragueCC.Now();
