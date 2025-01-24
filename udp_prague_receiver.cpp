@@ -32,6 +32,7 @@ struct datamessage_t {
 
 struct ackmessage_t {
     uint8_t type;
+    count_tp ack_seq;
     time_tp timestamp;         // timestamp from peer, freeze and keep this time
     time_tp echoed_timestamp;  // echoed_timestamp can be used to calculate the RTT
     count_tp packets_received; // echoed_packet counter
@@ -39,13 +40,29 @@ struct ackmessage_t {
     count_tp packets_lost;     // echoed lost counter
     bool error_L4S;            // receiver found a bleached/error ECN; stop using L4S_id on the sending packets!
 
-    void hton() {              // swap the bytes if needed
+    void set_stat() {
         type = 1;
+        ack_seq = htonl(ack_seq);
         timestamp = htonl(timestamp);
         echoed_timestamp = htonl(echoed_timestamp);
         packets_received = htonl(packets_received);
         packets_CE = htonl(packets_CE);
         packets_lost = htonl(packets_lost);
+    }
+    count_tp get_stat(pktsend_tp *pkt_stat, count_tp m_packets_lost) {
+        ack_seq = htonl(ack_seq);
+        timestamp = htonl(timestamp);
+        echoed_timestamp = htonl(echoed_timestamp);
+        packets_received = htonl(packets_received);
+        packets_CE = htonl(packets_CE);
+        packets_lost = htonl(packets_lost);
+
+        pkt_stat[ack_seq % PKT_BUFFER_SIZE] = snd_recv;
+        if (packets_lost - m_packets_lost > 0) {
+            for(uint16_t i = 1; i <= (packets_lost - m_packets_lost); i++)
+                pkt_stat[(ack_seq - i) % PKT_BUFFER_SIZE] = snd_lost;
+        }
+        return packets_lost;
     }
 };
 
@@ -151,7 +168,7 @@ int main(int argc, char **argv)
     if (app.connect) { // send a trigger ACK packet, otherwise just wait for data
         pragueCC.GetTimeInfo(ack_msg.timestamp, ack_msg.echoed_timestamp, new_ecn);
         pragueCC.GetACKInfo(ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, ack_msg.error_L4S);
-        ack_msg.hton();  // swap byte order if needed
+        ack_msg.set_stat();
         app.ExitIf(us.Send((char*)(&ack_msg), sizeof(ack_msg), new_ecn) != sizeof(ack_msg), "Invalid ack packet length sent.\n");
     }
 
@@ -203,13 +220,14 @@ int main(int argc, char **argv)
         now = pragueCC.Now();
         if (!app.rfc8888_ack) {
             // Return a corresponding acknowledge message
+            ack_msg.ack_seq = data_msg.seq_nr;
             pragueCC.GetTimeInfo(ack_msg.timestamp, ack_msg.echoed_timestamp, new_ecn);
             pragueCC.GetACKInfo(ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, ack_msg.error_L4S);
 
             app.LogSendACK(now, ack_msg.timestamp, ack_msg.echoed_timestamp, data_msg.seq_nr, sizeof(ack_msg),
                 ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, ack_msg.error_L4S);
 
-            ack_msg.hton();  // swap byte order if needed
+            ack_msg.set_stat();
             app.ExitIf(us.Send((char*)(&ack_msg), sizeof(ack_msg), new_ecn) != sizeof(ack_msg), "Invalid ack packet length sent.\n");
         } else if (rfc8888_acktime - now <= 0) {
             while (start_seq != end_seq) {

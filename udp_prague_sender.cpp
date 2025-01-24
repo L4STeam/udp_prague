@@ -33,6 +33,7 @@ struct datamessage_t {
 
 struct ackmessage_t {
     uint8_t type;
+    count_tp ack_seq;
     time_tp timestamp;         // timestamp from peer, freeze and keep this time
     time_tp echoed_timestamp;  // echoed_timestamp can be used to calculate the RTT
     count_tp packets_received; // echoed_packet counter
@@ -40,13 +41,29 @@ struct ackmessage_t {
     count_tp packets_lost;     // echoed lost counter
     bool error_L4S;            // receiver found a bleached/error ECN; stop using L4S_id on the sending packets!
 
-    void hton() {              // swap the bytes if needed
+    void set_stat() {
         type = 1;
+        ack_seq = htonl(ack_seq);
         timestamp = htonl(timestamp);
         echoed_timestamp = htonl(echoed_timestamp);
         packets_received = htonl(packets_received);
         packets_CE = htonl(packets_CE);
         packets_lost = htonl(packets_lost);
+    }
+    count_tp get_stat(pktsend_tp *pkt_stat, count_tp m_packets_lost) {
+        ack_seq = htonl(ack_seq);
+        timestamp = htonl(timestamp);
+        echoed_timestamp = htonl(echoed_timestamp);
+        packets_received = htonl(packets_received);
+        packets_CE = htonl(packets_CE);
+        packets_lost = htonl(packets_lost);
+
+        pkt_stat[ack_seq % PKT_BUFFER_SIZE] = snd_recv;
+        if (packets_lost - m_packets_lost > 0) {
+            for(uint16_t i = 1; i <= (packets_lost - m_packets_lost); i++)
+                pkt_stat[(ack_seq - i) % PKT_BUFFER_SIZE] = snd_lost;
+        }
+        return packets_lost;
     }
 };
 
@@ -99,7 +116,7 @@ struct rfc8888ack_t {
         for (uint16_t i = 0; i < reports; i++, seq++) {
             uint16_t idx = (begin_seq + i) % PKT_BUFFER_SIZE;
             if (recvseq[idx] == rcv_recv || (recvseq[idx] == rcv_ackd && recvtime[idx] + RCV_TIMEOUT - now > 0)) {
-                report[i] = htons((0x1 << 15) + ((recvecn[idx] & 0x3) << 13) + (((now - recvtime[idx] + (1 << 9)) >> 10) & 0x1FFF));
+                report[i] = htons((0x1 << 15) + ((recvecn[idx] & ecn_ce) << 13) + (((now - recvtime[idx] + (1 << 9)) >> 10) & 0x1FFF));
                 recvseq[idx] = rcv_ackd;
             } else {
                 report[i] = htons(0);
@@ -215,7 +232,7 @@ int main(int argc, char **argv)
             now = pragueCC.Now();
         } while ((bytes_received == 0) && (waitTimeout - now > 0));
         if (receivebuffer[0] == 1 && bytes_received >= ssize_t(sizeof(ack_msg))) {
-            ack_msg.hton();
+            pkts_lost = ack_msg.get_stat(pkt_stat, pkts_lost);
             pragueCC.PacketReceived(ack_msg.timestamp, ack_msg.echoed_timestamp);
             pragueCC.ACKReceived(ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, seqnr, ack_msg.error_L4S, inflight);
             pragueCC.GetCCInfo(pacing_rate, packet_window, packet_burst, packet_size);
