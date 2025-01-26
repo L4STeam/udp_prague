@@ -86,6 +86,7 @@ const prob_tp MAX_PROB = 1 << PROB_SHIFT;  // with r [Mbps] = 1/p - 1 = 2^20 Mbp
 const uint8_t ALPHA_SHIFT = 4;             // >> 4 is divide by 16
 const count_tp MIN_PKT_BURST = 1;          // 1 packet
 const count_tp MIN_PKT_WIN = 2;            // 2 packets
+const uint8_t RATE_OFFSET = 3;             // +3% and -3% for non-RTmode transfer during 1st and 2nd halve vrtt
 
 PragueCC::PragueCC(
     size_tp max_packet_size,
@@ -512,7 +513,10 @@ void PragueCC::GetCCInfo(     // when the sending-app needs to send a packet
     count_tp &packet_burst,   // number of packets that can be paced at once (<250µs)
     size_tp &packet_size)     // the packet size to transmit
 {
-    pacing_rate = m_pacing_rate;
+    if (Now() - m_alpha_ts - (m_vrtt >> 1) >= 0)
+        pacing_rate = m_pacing_rate - (100 + RATE_OFFSET) / 100;
+    else
+        pacing_rate = m_pacing_rate * (100 + RATE_OFFSET) / 100;
     packet_window = m_packet_window;
     packet_burst = m_packet_burst;
     packet_size = m_packet_size;
