@@ -10,6 +10,7 @@
 #define BUFFER_SIZE 8192      // in bytes (depending on MTU)
 #define REPORT_SIZE (BUFFER_SIZE / 4)
 #define PKT_BUFFER_SIZE 65536 // [RFC8888] calculated using arithmetic modulo 65536
+#define FRM_BUFFER_SIZE 2048
 #define SND_TIMEOUT 1000000   // Sender timeout in us when window-limited
 #define RCV_TIMEOUT 250000    // Receive timeout for a previously-receiving packet
 
@@ -37,6 +38,8 @@ struct framemessage_t {
     time_tp echoed_timestamp;  // echoed_timestamp can be used to calculate the RTT
     count_tp seq_nr;           // packet sequence number, should start with 1 and increase monotonic with packets sent
     count_tp frame_nr;         // frame sequence number, also start with 1 and increase monitonically
+    count_tp frame_sent;       // frame sent before this packets
+    count_tp frame_size;       // frame size in bytes
 
     void hton() {              // swap the bytes if needed
         type = 2;
@@ -44,6 +47,8 @@ struct framemessage_t {
         echoed_timestamp = htonl(echoed_timestamp);
         seq_nr = htonl(seq_nr);
         frame_nr = htonl(frame_nr);
+        frame_sent = htonl(frame_sent);
+        frame_size = htonl(frame_size);
     }
 };
 
@@ -66,7 +71,7 @@ struct ackmessage_t {
         packets_CE = htonl(packets_CE);
         packets_lost = htonl(packets_lost);
     }
-    count_tp get_stat(pktsend_tp *pkt_stat, count_tp m_packets_lost) {
+    void get_stat(pktsend_tp *pkts_stat, count_tp &m_packets_lost) {
         ack_seq = htonl(ack_seq);
         timestamp = htonl(timestamp);
         echoed_timestamp = htonl(echoed_timestamp);
@@ -74,12 +79,51 @@ struct ackmessage_t {
         packets_CE = htonl(packets_CE);
         packets_lost = htonl(packets_lost);
 
-        pkt_stat[ack_seq % PKT_BUFFER_SIZE] = snd_recv;
+        pkts_stat[ack_seq % PKT_BUFFER_SIZE] = snd_recv;
         if (packets_lost - m_packets_lost > 0) {
             for(uint16_t i = 1; i <= (packets_lost - m_packets_lost); i++)
-                pkt_stat[(ack_seq - i) % PKT_BUFFER_SIZE] = snd_lost;
+                if (pkts_stat[(ack_seq - i) % PKT_BUFFER_SIZE] == snd_sent)
+                    pkts_stat[(ack_seq - i) % PKT_BUFFER_SIZE] = snd_lost;
         }
-        return packets_lost;
+        m_packets_lost = packets_lost;
+    }
+    void get_frame_stat(pktsend_tp *pkts_stat, count_tp &m_packets_lost,
+        bool is_sending, count_tp frm_sending, count_tp &recv_frame, count_tp &lost_frame, count_tp *frm_idx, count_tp *frm_pktsent, count_tp *frm_pktlost) {
+        ack_seq = htonl(ack_seq);
+        timestamp = htonl(timestamp);
+        echoed_timestamp = htonl(echoed_timestamp);
+        packets_received = htonl(packets_received);
+        packets_CE = htonl(packets_CE);
+        packets_lost = htonl(packets_lost);
+
+        count_tp frm_index = frm_idx[ack_seq % PKT_BUFFER_SIZE];
+        if (pkts_stat[ack_seq % PKT_BUFFER_SIZE] == snd_sent) {
+            frm_pktsent[frm_index % FRM_BUFFER_SIZE]--;
+            if ((frm_index != frm_sending || !is_sending) && !frm_pktsent[frm_index % FRM_BUFFER_SIZE] && !frm_pktlost[frm_index % FRM_BUFFER_SIZE])
+                recv_frame++;
+        } else if (pkts_stat[ack_seq % PKT_BUFFER_SIZE] == snd_lost) {
+            frm_pktlost[frm_index % FRM_BUFFER_SIZE]--;
+            if ((frm_index != frm_sending || !is_sending) && !frm_pktlost[frm_index % FRM_BUFFER_SIZE]) {
+                lost_frame--;
+                if (!frm_pktsent[frm_index % FRM_BUFFER_SIZE])
+                    recv_frame++;
+            }
+        }
+        pkts_stat[ack_seq % PKT_BUFFER_SIZE] = snd_recv;
+
+        if (packets_lost - m_packets_lost > 0) {
+            for(uint16_t i = 1; i <= (packets_lost - m_packets_lost); i++) {
+                if (pkts_stat[ack_seq % PKT_BUFFER_SIZE] == snd_sent) {
+                    frm_index = frm_idx[(ack_seq - i) % PKT_BUFFER_SIZE];
+                    frm_pktsent[frm_index % FRM_BUFFER_SIZE]--;
+                    if ((frm_index != frm_sending || !is_sending) && !frm_pktlost[frm_index % FRM_BUFFER_SIZE])
+                        lost_frame++;
+                    frm_pktlost[frm_index % FRM_BUFFER_SIZE]++;
+                    pkts_stat[(ack_seq - i) % PKT_BUFFER_SIZE] = snd_lost;
+                }
+            }
+        }
+        m_packets_lost = packets_lost;
     }
 };
 
@@ -92,34 +136,95 @@ struct rfc8888ack_t {
     uint16_t get_size(uint16_t rptsize) {
         return sizeof(uint16_t) * rptsize + sizeof(type) + sizeof(begin_seq) + sizeof(num_reports);
     }
-    uint16_t get_stat(time_tp now, time_tp *sendtime, time_tp *pkt_rtt, count_tp &received, count_tp &lost, count_tp &mark, bool &error, pktsend_tp *pkt_stat, count_tp &last_ackseq) {
+    uint16_t get_stat(time_tp now, time_tp *sendtime, time_tp *pkts_rtt, count_tp &rcvd, count_tp &lost, count_tp &mark, bool &error, pktsend_tp *pkts_stat, count_tp &last_ack) {
         uint16_t num_rtt = 0;
         begin_seq = htonl(begin_seq);
         num_reports = htons(num_reports);
-        while (last_ackseq + 1 - begin_seq < 0) {
-            if (pkt_stat[(last_ackseq + 1) % PKT_BUFFER_SIZE] == snd_sent) {
+        while (last_ack + 1 - begin_seq < 0) {
+            if (pkts_stat[(last_ack + 1) % PKT_BUFFER_SIZE] == snd_sent) {
                 lost++;
-                pkt_stat[(last_ackseq + 1) % PKT_BUFFER_SIZE] = snd_lost;
+                pkts_stat[(last_ack + 1) % PKT_BUFFER_SIZE] = snd_lost;
             }
-            last_ackseq++;
+            last_ack++;
         }
-        for (uint16_t i = 0; i < num_reports; i++, last_ackseq++) {
+        for (uint16_t i = 0; i < num_reports; i++, last_ack++) {
             uint16_t idx = (begin_seq + i) % PKT_BUFFER_SIZE;
             report[i] = htons(report[i]);
             if ((report[i] & 0x8000) >> 15) {
-                if (pkt_stat[idx] == snd_sent || pkt_stat[idx] == snd_lost) {
-                    received++;
+                if (pkts_stat[idx] == snd_sent || pkts_stat[idx] == snd_lost) {
+                    rcvd++;
                     mark += ((report[i] & 0x6000) >> 13 == ecn_ce);
                     error |= ((report[i] & 0x2000) >> 13 == 0x0);
-                    pkt_rtt[num_rtt++] = now - ((report[i] & 0x1FFF) << 10) - sendtime[idx];
-                    if (pkt_stat[idx] == snd_lost)
+                    pkts_rtt[num_rtt++] = now - ((report[i] & 0x1FFF) << 10) - sendtime[idx];
+                    if (pkts_stat[idx] == snd_lost)
                         lost--;
-                    pkt_stat[idx] = snd_recv;
+                    pkts_stat[idx] = snd_recv;
                 }
             } else {
-                if (pkt_stat[idx] == snd_sent) {
+                if (pkts_stat[idx] == snd_sent) {
                     lost++;
-                    pkt_stat[idx] = snd_lost;
+                    pkts_stat[idx] = snd_lost;
+                }
+            }
+        }
+        return num_rtt;
+    }
+    uint16_t get_frame_stat(time_tp now, time_tp *sendtime, time_tp *pkts_rtt, count_tp &rcvd, count_tp &lost, count_tp &mark, bool &error, pktsend_tp *pkts_stat, count_tp &last_ack,
+        bool is_sending, count_tp frm_sending, count_tp &recv_frame, count_tp &lost_frame, count_tp *frm_idx, count_tp *frm_pktsent, count_tp *frm_pktlost) {
+        uint16_t frm_index;
+        uint16_t num_rtt = 0;
+        begin_seq = htonl(begin_seq);
+        num_reports = htons(num_reports);
+        while (last_ack + 1 - begin_seq < 0) {
+            if (pkts_stat[(last_ack + 1) % PKT_BUFFER_SIZE] == snd_sent) {
+                lost++;
+                pkts_stat[(last_ack + 1) % PKT_BUFFER_SIZE] = snd_lost;
+
+                frm_index = frm_idx[(last_ack + 1) % PKT_BUFFER_SIZE];
+                frm_pktsent[frm_index % FRM_BUFFER_SIZE]--;
+                if ((frm_index != frm_sending || !is_sending) && !frm_pktlost[frm_index % FRM_BUFFER_SIZE])
+                    lost_frame++;
+                frm_pktlost[frm_index % FRM_BUFFER_SIZE]++;
+            }
+            last_ack++;
+        }
+        for (uint16_t i = 0; i < num_reports; i++, last_ack++) {
+            uint16_t idx = (begin_seq + i) % PKT_BUFFER_SIZE;
+            report[i] = htons(report[i]);
+            if ((report[i] & 0x8000) >> 15) {
+                if (pkts_stat[idx] == snd_sent || pkts_stat[idx] == snd_lost) {
+                    rcvd++;
+                    mark += ((report[i] & 0x6000) >> 13 == ecn_ce);
+                    error |= ((report[i] & 0x2000) >> 13 == 0x0);
+                    pkts_rtt[num_rtt++] = now - ((report[i] & 0x1FFF) << 10) - sendtime[idx];
+                    if (pkts_stat[idx] == snd_lost)
+                        lost--;
+                    pkts_stat[idx] = snd_recv;
+
+                    frm_index = frm_idx[idx];
+                    if (pkts_stat[idx] == snd_sent) {
+                        frm_pktsent[frm_index % FRM_BUFFER_SIZE]--;
+                        if ((frm_index != frm_sending || !is_sending) && !frm_pktsent[frm_index % FRM_BUFFER_SIZE] && !frm_pktlost[frm_index % FRM_BUFFER_SIZE])
+                            recv_frame++;
+                    } else if (pkts_stat[idx] == snd_lost) {
+                        frm_pktlost[frm_index % FRM_BUFFER_SIZE]--;
+                        if ((frm_index != frm_sending || !is_sending) && !frm_pktlost[frm_index % FRM_BUFFER_SIZE]) {
+                            lost_frame--;
+                            if (!frm_pktsent[frm_index % FRM_BUFFER_SIZE])
+                                recv_frame++;
+                        }
+                    }
+                }
+            } else {
+                if (pkts_stat[idx] == snd_sent) {
+                    lost++;
+                    pkts_stat[idx] = snd_lost;
+
+                    frm_index = frm_idx[idx];
+                    frm_pktsent[frm_index % FRM_BUFFER_SIZE]--;
+                    if ((frm_index != frm_sending || !is_sending) && !frm_pktlost[frm_index % FRM_BUFFER_SIZE])
+                        lost_frame++;
+                    frm_pktlost[frm_index % FRM_BUFFER_SIZE]++;
                 }
             }
         }
