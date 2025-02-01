@@ -54,7 +54,6 @@ struct PragueState {
     count_tp  m_packets_sent;
     bool      m_error_L4S;            // latest known receiver-end error state
     // sender-end cubic variabls
-    bool      m_reno_increase;
     time_tp   m_cubic_epoch_start;
     window_tp m_cubic_last_max_fracwin;
     uint32_t  m_cubic_K;

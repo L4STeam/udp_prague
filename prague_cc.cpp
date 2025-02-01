@@ -75,7 +75,6 @@ uint32_t CubicRoot(uint64_t a)
 }
 
 // Prague consts and methods
-
 const rate_tp MIN_STEP = 7;                // Minimally wait for 7 RTTs to try to increase faster
 const rate_tp RATE_STEP = 1920000;         // per 1920kB/s = 15360kbps pacing rate wait one RTT longer
 const time_tp QUEUE_GROWTH = 1000;         // target a queue growth of 1000us = 1ms after waiting pacing_rate / RATE_STEP + MIN_STEP
@@ -87,6 +86,23 @@ const uint8_t ALPHA_SHIFT = 4;             // >> 4 is divide by 16
 const count_tp MIN_PKT_BURST = 1;          // 1 packet
 const count_tp MIN_PKT_WIN = 2;            // 2 packets
 const uint8_t RATE_OFFSET = 3;             // +3% and -3% for non-RTmode transfer during 1st and 2nd halve vrtt
+
+time_tp PragueCC::Now() // Returns number of µs since first call
+{
+    // Checks if now==0; skip this value used to check uninitialized timepstamp
+    if (m_start_ref == 0) {
+        m_start_ref = time_tp(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+        if (m_start_ref == 0) {
+            m_start_ref = -1;  // init m_start_ref with -1 to avoid next now to be less than this value
+        }
+        return 1; // make sure we don't return less than or equal to 0
+    }
+    time_tp now = time_tp(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count()) - m_start_ref;
+    if (now == 0) {
+        return 1; // make sure we don't return 0
+    }
+    return now;
+}
 
 PragueCC::PragueCC(
     size_tp max_packet_size,
@@ -141,7 +157,9 @@ PragueCC::PragueCC(
     m_alpha_packets_sent = 0;
     // for loss and recovery calculation
     m_loss_ts = 0;
+    m_loss_cca = cca_prague_win;
     m_lost_window = 0;
+    m_lost_rate = 0;
     m_loss_packets_lost = 0;
     m_loss_packets_sent = 0;
     m_lost_rtts_to_growth = 0;
@@ -172,23 +190,6 @@ PragueCC::PragueCC(
 
 PragueCC::~PragueCC()
 {}
-
-time_tp PragueCC::Now() // Returns number of µs since first call
-{
-    // Checks if now==0; skip this value used to check uninitialized timepstamp
-    if (m_start_ref == 0) {
-        m_start_ref = time_tp(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
-        if (m_start_ref == 0) {
-            m_start_ref = -1;  // init m_start_ref with -1 to avoid next now to be less than this value
-        }
-        return 1; // make sure we don't return less than or equal to 0
-    }
-    time_tp now = time_tp(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count()) - m_start_ref;
-    if (now == 0) {
-        return 1; // make sure we don't return 0
-    }
-    return now;
-}
 
 bool PragueCC::RFC8888Received(size_t num_rtt, time_tp *pkts_rtt)
 {
@@ -224,13 +225,13 @@ bool PragueCC::PacketReceived(         // call this when a packet is received fr
     return true;
 }
 
-bool PragueCC::ACKReceived(    // call this when an ACK (or a Frame ACK) is received from peer. Returns true if this is a newer ACK, false if this is an old ACK
+bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. Returns true if this is a newer ACK, false if this is an old ACK
     count_tp packets_received, // echoed_packet counter
     count_tp packets_CE,       // echoed CE counter
     count_tp packets_lost,     // echoed lost counter
     count_tp packets_sent,     // local counter of packets sent up to now, an RTT is reached if remote ACK packets_received+packets_lost
     bool error_L4S,            // receiver found a bleached/error ECN; stop using L4S_id on the sending packets!
-    count_tp &inflight)        // how many packets (or frames if fps) are in flight after the ACKed
+    count_tp &inflight)        // how many packets are in flight after the ACKed
 {
     if ((m_packets_received - packets_received > 0) || (m_packets_CE - packets_CE > 0)) // this is an older or invalid ACK (these counters can't go down)
         return false;
