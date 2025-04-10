@@ -95,10 +95,10 @@ struct AppStuff
                     "    -c (connect first as a client, otherwise bind and wait for connection)\n"
                     "    -b <sender specific max bitrate, def: %s kbps>\n"
                     "    -m <max packet/ACK size, def: %s B>\n"
-                    "    -v (for verbose prints)\n"
+                    "    -v (verbose output)\n"
                     "    -q (quiet)\n"
-                    "    --rfc8888 (RFC8888 feddback)"
-                    "    --rfc8888ackperiod <RFC8888 ACK period, def %s ms>",
+                    "    --rfc8888 (RFC8888 feedback)\n"
+                    "    --rfc8888ackperiod <RFC8888 ACK period, def %s ms>\n",
                     sender_role ? "sender" : "receiver", C_STR(PRAGUE_MAXRATE / 125), C_STR(PRAGUE_INITMTU), C_STR(RFC8888_ACKPERIOD / 1000));
                 exit(1);
             }
