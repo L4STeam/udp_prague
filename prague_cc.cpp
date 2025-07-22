@@ -516,7 +516,7 @@ void PragueCC::GetCCInfo(     // when the sending-app needs to send a packet
     size_tp &packet_size)     // the packet size to transmit
 {
     if (Now() - m_alpha_ts - (m_vrtt >> 1) >= 0)
-        pacing_rate = m_pacing_rate - (100 + RATE_OFFSET) / 100;
+        pacing_rate = m_pacing_rate * 100 / (100 + RATE_OFFSET);
     else
         pacing_rate = m_pacing_rate * (100 + RATE_OFFSET) / 100;
     packet_window = m_packet_window;
