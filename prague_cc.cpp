@@ -86,6 +86,7 @@ const uint8_t ALPHA_SHIFT = 4;             // >> 4 is divide by 16
 const count_tp MIN_PKT_BURST = 1;          // 1 packet
 const count_tp MIN_PKT_WIN = 2;            // 2 packets
 const uint8_t RATE_OFFSET = 3;             // +3% and -3% for non-RTmode transfer during 1st and 2nd halve vrtt
+const count_tp MIN_FRAME_WIN = 2;          // 2 frames
 
 time_tp PragueCC::Now() // Returns number of µs since first call
 {
@@ -515,7 +516,7 @@ void PragueCC::GetCCInfo(     // when the sending-app needs to send a packet
     size_tp &packet_size)     // the packet size to transmit
 {
     if (Now() - m_alpha_ts - (m_vrtt >> 1) >= 0)
-        pacing_rate = m_pacing_rate - (100 + RATE_OFFSET) / 100;
+        pacing_rate = m_pacing_rate * 100 / (100 + RATE_OFFSET);
     else
         pacing_rate = m_pacing_rate * (100 + RATE_OFFSET) / 100;
     packet_window = m_packet_window;
@@ -533,8 +534,11 @@ void PragueCC::GetCCInfoVideo( // when the sending app needs to send a frame
     pacing_rate = m_pacing_rate;
     packet_burst = m_packet_burst;
     packet_size = m_packet_size;
-    frame_size = m_pacing_rate * m_frame_budget / 1000000;
+    frame_size = (m_packet_size > m_pacing_rate * m_frame_budget / 1000000) ? (m_packet_size) : (m_pacing_rate * m_frame_budget / 1000000);
     frame_window = m_packet_window * m_packet_size / frame_size;
+    if (frame_window < MIN_FRAME_WIN) {
+       frame_window = MIN_FRAME_WIN;
+    }
 }
 
 void PragueCC::GetACKInfo(       // when the receiving-app needs to send a packet
