@@ -74,6 +74,62 @@ uint32_t CubicRoot(uint64_t a)
     return x;
 }
 
+uint64_t mul_64_64_shift(uint64_t left, uint64_t right, uint32_t shift = 0)
+{
+    uint64_t a0 = left & ((1ULL << 32)-1);
+    uint64_t a1 = left >> 32;
+    uint64_t b0 = right & ((1ULL << 32)-1);
+    uint64_t b1 = right >> 32;
+    uint64_t m0 = a0 * b0;
+    uint64_t m1 = a0 * b1;
+    uint64_t m2 = a1 * b0;
+    uint64_t m3 = a1 * b1;
+    uint64_t result_low;
+    uint64_t result_high;
+
+    m2 += (m0 >> 32);
+    m2 += m1;
+    /* Overflow */
+    if (m2 < m1)
+        m3 += (1ULL << 32);
+
+    result_low = (m0 & ((1ULL << 32)-1)) | (m2 << 32);
+    result_high = m3 + (m2 >> 32);
+    if (shift && 64 >= shift) {
+        result_low = (result_low >> shift) | (result_high << (64 - shift));
+        result_high = (result_high >> shift);
+    }
+    return (result_high) ? 0xffffffffffffffffULL : result_low;
+}
+
+uint64_t div_64_64_round(uint64_t a, uint64_t divisor)
+{
+    uint64_t dividend = a + (divisor >> 1);
+    uint64_t overflow = (dividend < a) ? 1 : 0;
+    uint64_t quotient1 = 0;
+    uint64_t quotient2 = 0;
+    uint64_t quotient3 = 0;
+    uint64_t remainder = 0;
+
+    if (!divisor)
+        return 0xffffffffffffffffULL;
+
+    if (!overflow)
+        return dividend / divisor;
+
+    quotient1 = overflow / divisor;
+    /* Overflow */
+    if (quotient1)
+        return 0xffffffffffffffffULL;
+
+    remainder = overflow % divisor;
+    quotient2 = ((remainder << 32) | (dividend >> 32)) / divisor;
+
+    remainder = ((remainder << 32) | (dividend >> 32)) % divisor;
+    quotient3 = ((remainder << 32) | (dividend & 0xffffffff)) / divisor;
+    return (quotient2 << 32) + quotient3;
+}
+
 // Prague consts and methods
 const rate_tp MIN_STEP = 7;                // Minimally wait for 7 RTTs to try to increase faster
 const rate_tp RATE_STEP = 1920000;         // per 1920kB/s = 15360kbps pacing rate wait one RTT longer
@@ -328,7 +384,7 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     count_tp acks = (packets_received - m_packets_received) - (packets_CE - m_packets_CE);
     if ((m_cc_state != cs_in_loss) && (acks > 0))
     {
-        size_tp increment = m_pacing_rate * QUEUE_GROWTH / 1000000;  // incr = B/s * 1ms
+        size_tp increment = mul_64_64_shift(m_pacing_rate, QUEUE_GROWTH) / 1000000;  // incr = B/s * 1ms
         if ((increment < m_max_packet_size) || m_rtts_to_growth)     // increment with 1ms queue delay if no more rtts to wait for growth and if > than 1 max packet
             increment = m_max_packet_size;
 
@@ -336,7 +392,15 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
         // W[µB] = W + acks * mtu² * 1000000² / W * (srrt/vrtt)²
         // correct order to prevent loss of precision
         if (m_cca_mode == cca_prague_win) {
-            m_fractional_window += acks * m_packet_size * srtt * 1000000 / m_vrtt * increment * srtt / m_vrtt * 1000000 / m_fractional_window;
+            uint64_t divisor  = mul_64_64_shift(m_vrtt, m_vrtt);     // Use mul_64_64 to implicitely convert to uint64_t
+            uint64_t scaler   = div_64_64_round((uint64_t) srtt * 1000000 * srtt, divisor);
+            //uint64_t scaler   = ((uint64_t) srtt * 1000000 * srtt + (divisor >> 1)) / divisor;
+            uint64_t increase = div_64_64_round(acks * m_packet_size * scaler * 1000000, m_fractional_window);
+            //uint64_t increase = (acks * m_packet_size * scaler * 1000000 + (m_fractional_window >> 1)) / m_fractional_window;
+            uint64_t scaled_increase = mul_64_64_shift(increase, increment);
+            m_fractional_window += scaled_increase;
+
+            //m_fractional_window += acks * (uint64_t) m_packet_size * srtt * 1000000 / m_vrtt * (uint64_t) increment * srtt / m_vrtt * 1000000 / m_fractional_window;
         } else if (m_cca_mode == cca_cubic) { // Cubic code is still unfinished. Don't use for now.
             // Linux Cubic implementation includes further (1) check to stop
             // increasing cwnd when it reaches last_Wmax in a short period,
@@ -362,7 +426,16 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
             //printf("time: %d, K: %u, offs: %lu, delta: %lu/%lu, pkt: %lu, rtt_min: %d, RTT_SCALED: %lu, count: %lu, target: %lu, fw: %lu\n", t, m_cubic_K, offs, (C_SCALED * offs * offs * offs) * m_packet_size, delta, m_packet_size, m_rtt_min, RTT_SCALED, count, target, m_fractional_window);
             m_fractional_window += acks * m_max_packet_size * srtt * 1000000 / m_vrtt * srtt / m_vrtt * count / m_fractional_window;
         } else {
-            m_pacing_rate += acks * increment * 1000000 / m_vrtt * m_packet_size / m_vrtt * 1000000 / m_pacing_rate;
+            uint64_t divisor = mul_64_64_shift(increment, 1000000);
+            uint64_t invscaler = div_64_64_round(mul_64_64_shift(m_pacing_rate, m_vrtt), divisor);
+            //uint64_t invscaler = (mul_64_64_shift(m_pacing_rate, m_vrtt) + (divisor >> 1)) / divisor;
+            uint64_t increase = div_64_64_round((uint64_t) acks * m_packet_size * 1000000, m_vrtt);
+            //uint64_t increase = ((uint64_t) acks * m_packet_size * 1000000 + (m_vrtt >> 1)) / m_vrtt;
+            uint64_t scaled_increase = div_64_64_round(increase, invscaler);
+            //uint64_t scaled_increase = (increase + (invscaler >> 1)) / invscaler;
+            m_pacing_rate += scaled_increase;
+
+            //m_pacing_rate += acks * increment * 1000000 / m_vrtt * m_packet_size / m_vrtt * 1000000 / m_pacing_rate;
         }
     }
 
