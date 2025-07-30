@@ -426,10 +426,10 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
             //printf("time: %d, K: %u, offs: %lu, delta: %lu/%lu, pkt: %lu, rtt_min: %d, RTT_SCALED: %lu, count: %lu, target: %lu, fw: %lu\n", t, m_cubic_K, offs, (C_SCALED * offs * offs * offs) * m_packet_size, delta, m_packet_size, m_rtt_min, RTT_SCALED, count, target, m_fractional_window);
             m_fractional_window += acks * m_max_packet_size * srtt * 1000000 / m_vrtt * srtt / m_vrtt * count / m_fractional_window;
         } else {
-            uint64_t divisor = mul_64_64_shift(increment, 1000000);
+            uint64_t divisor = mul_64_64_shift(m_packet_size, 1000000);
             uint64_t invscaler = div_64_64_round(mul_64_64_shift(m_pacing_rate, m_vrtt), divisor);
             //uint64_t invscaler = (mul_64_64_shift(m_pacing_rate, m_vrtt) + (divisor >> 1)) / divisor;
-            uint64_t increase = div_64_64_round((uint64_t) acks * m_packet_size * 1000000, m_vrtt);
+            uint64_t increase = div_64_64_round(mul_64_64_shift((uint64_t) acks * increment, 1000000), m_vrtt);
             //uint64_t increase = ((uint64_t) acks * m_packet_size * 1000000 + (m_vrtt >> 1)) / m_vrtt;
             uint64_t scaled_increase = div_64_64_round(increase, invscaler);
             //uint64_t scaled_increase = (increase + (invscaler >> 1)) / invscaler;
