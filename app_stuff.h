@@ -111,15 +111,16 @@ struct AppStuff
                     "    -c (connect first as a client, otherwise bind and wait for connection)\n"
                     "    -b <sender specific max bitrate, def: %s kbps>\n"
                     "    -m <max packet/ACK size, def: %s B>\n"
-                    "    -v (for verbose prints)\n"
+                    "    -v (verbose output)\n"
                     "    -q (quiet)\n"
-                    "    --rfc8888 (RFC8888 feddback)\n"
+                    "    --rfc8888 (RFC8888 feedback)\n"
                     "    --rfc8888ackperiod <RFC8888 ACK period, def %s us>\n"
                     "    --rtmode (Real-Time mode)\n"
                     "    --fps <Frame-per-second, def %s fps>\n"
                     "    --frameduration <Frame duration, def %s us>\n",
                     sender_role ? "sender" : "receiver", C_STR(PRAGUE_MAXRATE / 125), C_STR(PRAGUE_INITMTU),
                     C_STR(RFC8888_ACKPERIOD), C_STR(FRAME_PER_SECOND), C_STR(FRAME_DURATION));
+
                 exit(1);
             }
         }
