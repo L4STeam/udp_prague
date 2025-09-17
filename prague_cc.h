@@ -98,6 +98,10 @@ public:
                                // needs a monotonic increasing signed int 32 which wraps around (after exactly 4294.967296 seconds)
                                // and skips 0 as a special value, so value 1 lasts 2 microseconds
 
+    time_tp get_ref_rtt();
+
+    count_tp get_alpha_shift();
+
     bool RFC8888Received(
         size_t num_rtt,
         time_tp *pkts_rtt);

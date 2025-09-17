@@ -88,6 +88,22 @@ time_tp PragueCC::Now() // Returns number of µs since first call
     return now;
 }
 
+time_tp PragueCC::get_ref_rtt()
+{
+    if (m_frame_interval)
+       return m_frame_interval;
+    else
+       return REF_RTT;
+}
+
+count_tp PragueCC::get_alpha_shift()
+{
+    if (m_frame_interval)
+        return (1 << ALPHA_SHIFT) * (REF_RTT) / (m_frame_interval);
+    else
+        return 1 << ALPHA_SHIFT;
+}
+
 PragueCC::PragueCC(
     size_tp max_packet_size,
     fps_tp fps,
@@ -151,7 +167,7 @@ PragueCC::PragueCC(
     m_alpha = 0;
     m_pacing_rate = init_rate;
     m_fractional_window = m_init_window;
-    m_packet_size = m_pacing_rate * REF_RTT / 1000000 / MIN_PKT_WIN;            // B/p = B/s * 25ms/burst / 2p/window
+    m_packet_size = m_pacing_rate * get_ref_rtt() / 1000000 / MIN_PKT_WIN;            // B/p = B/s * 25ms/burst / 2p/window
     if (m_packet_size < PRAGUE_MINMTU)
         m_packet_size = PRAGUE_MINMTU;
     if (m_packet_size > m_max_packet_size)
@@ -177,7 +193,7 @@ bool PragueCC::RFC8888Received(size_t num_rtt, time_tp *pkts_rtt)
             m_srtt += (m_rtt - m_srtt) >> 3;
         else
             m_srtt = m_rtt;
-        m_vrtt = (m_srtt > REF_RTT) ? m_srtt : REF_RTT;
+        m_vrtt = (m_srtt > get_ref_rtt()) ? m_srtt : get_ref_rtt();
     }
     return true;
 }
@@ -196,7 +212,7 @@ bool PragueCC::PacketReceived(         // call this when a packet is received fr
         m_srtt += (m_rtt - m_srtt) >> 3;  // smooth with EWMA of 1/8th
     else
         m_srtt = m_rtt;
-    m_vrtt = (m_srtt > REF_RTT) ? m_srtt : REF_RTT; // calculate the virtual RTT (if srtt < 25ms reference RTT)
+    m_vrtt = (m_srtt > get_ref_rtt()) ? m_srtt : get_ref_rtt(); // calculate the virtual RTT (if srtt < 25ms reference RTT)
     m_r_prev_ts = timestamp;
     return true;
 }
@@ -246,7 +262,7 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     //    && (now() - m_prev_cycle > 25000)) {
         // prob_tp prob = (packets_CE - m_alpha_packets_CE) << PROB_SHIFT / (packets_received - m_alpha_packets_received);
         prob_tp prob = (prob_tp(packets_CE - m_alpha_packets_CE) << PROB_SHIFT) / (packets_received - m_alpha_packets_received);
-        m_alpha += ((prob - m_alpha) >> ALPHA_SHIFT);
+        m_alpha += ((prob - m_alpha) / get_alpha_shift());
         m_alpha = (m_alpha > MAX_PROB) ? MAX_PROB : m_alpha;
         m_alpha_packets_sent = packets_sent;
         m_alpha_packets_CE = packets_CE;

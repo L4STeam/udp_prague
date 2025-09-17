@@ -144,8 +144,8 @@ int main(int argc, char **argv)
 
                 // Get extra frame info from Prague CC and update frame sender info
                 pragueCC.GetCCInfoVideo(pacing_rate, frame_size, frame_window, packet_burst, packet_size);
-                printf("[FRAME %d] now: %d, inflight: %d(%d/%d/%d/%d), frame_size: %ld, frame_window: %d, packet_size: %ld, pacing_rate: %ld\n",
-                    frame_nr, now, frame_inflight, is_sending, sent_frame, lost_frame, recv_frame, frame_size, frame_window, packet_size, pacing_rate);
+                //printf("[FRAME %d] now: %d, inflight: %d(%d/%d/%d/%d), frame_size: %ld, frame_window: %d, packet_size: %ld, pacing_rate: %ld\n",
+                //    frame_nr, now, frame_inflight, is_sending, sent_frame, lost_frame, recv_frame, frame_size, frame_window, packet_size, pacing_rate);
             }
             while ((frame_inflight <= frame_window) && (frame_sent < frame_size) && (inburst < packet_burst) && (nextSend - now <= 0)) {
                 pragueCC.GetTimeInfo(frame_msg.timestamp, frame_msg.echoed_timestamp, new_ecn);
