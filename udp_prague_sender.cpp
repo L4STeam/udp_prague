@@ -15,6 +15,11 @@
 #define SND_TIMEOUT 1000000   // Sender timeout in us when window-limited
 #define RCV_TIMEOUT 250000    // Receive timeout for a previously-receiving packet
 
+#define BULK_DATA_TYPE   1
+#define RT_DATA_TYPE     2
+#define PKT_ACK_TYPE     17
+#define RFC8888_ACK_TYPE 18
+
 enum pktsend_tp {snd_init = 0, snd_sent, snd_recv, snd_lost};
 enum pktrecv_tp {rcv_init = 0, rcv_recv, rcv_ackd, rcv_lost};
 
@@ -26,7 +31,7 @@ struct datamessage_t {
     count_tp seq_nr;           // packet sequence number, should start with 1 and increase monotonic with packets sent
 
     void hton() {              // swap the bytes if needed
-        type = 1;
+        type = BULK_DATA_TYPE;
         timestamp = htonl(timestamp);
         echoed_timestamp = htonl(echoed_timestamp);
         seq_nr = htonl(seq_nr);
@@ -43,7 +48,7 @@ struct framemessage_t {
     count_tp frame_size;       // frame size in bytes
 
     void hton() {              // swap the bytes if needed
-        type = 2;
+        type = RT_DATA_TYPE;
         timestamp = htonl(timestamp);
         echoed_timestamp = htonl(echoed_timestamp);
         seq_nr = htonl(seq_nr);
@@ -64,7 +69,7 @@ struct ackmessage_t {
     bool error_L4S;            // receiver found a bleached/error ECN; stop using L4S_id on the sending packets!
 
     void set_stat() {
-        type = 1;
+        type = PKT_ACK_TYPE;
         ack_seq = htonl(ack_seq);
         timestamp = htonl(timestamp);
         echoed_timestamp = htonl(echoed_timestamp);
@@ -244,7 +249,7 @@ struct rfc8888ack_t {
             rptsize += sizeof(uint16_t);
         }
 
-        type = 2;
+        type = RFC8888_ACK_TYPE;
         begin_seq = htonl(begin_seq);
         num_reports = htons(reports);
         return rptsize;
@@ -448,7 +453,7 @@ int main(int argc, char **argv)
             bytes_received = us.Receive(receivebuffer, sizeof(receivebuffer), rcv_ecn, (waitTimeout - now > 0) ? (waitTimeout - now) : 1);
             now = pragueCC.Now();
         } while ((bytes_received == 0) && (waitTimeout - now > 0));
-        if (receivebuffer[0] == 1 && bytes_received >= ssize_t(sizeof(ack_msg))) {
+        if (receivebuffer[0] == PKT_ACK_TYPE && bytes_received >= ssize_t(sizeof(ack_msg))) {
             if (!app.rt_mode) {
                 ack_msg.get_stat(pkts_stat, pkts_lost);
             } else {
@@ -468,7 +473,7 @@ int main(int argc, char **argv)
                     ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, ack_msg.error_L4S, pacing_rate, packet_window, packet_burst,
                     inflight, inburst, nextSend, frame_window, frame_inflight, is_sending, sent_frame, lost_frame, recv_frame);
              }
-        } else if (receivebuffer[0] == 2 && bytes_received >= rfc8888_ackmsg.get_size(0)) {
+        } else if (receivebuffer[0] == RFC8888_ACK_TYPE && bytes_received >= rfc8888_ackmsg.get_size(0)) {
             uint16_t num_rtt = 0;
             if (!app.rt_mode) {
                 num_rtt = rfc8888_ackmsg.get_stat(now, sendtime, pkts_rtt, pkts_received, pkts_lost, pkts_CE, err_L4S, pkts_stat, last_ackseq);

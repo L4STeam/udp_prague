@@ -14,6 +14,11 @@
 #define SND_TIMEOUT 1000000   // Sender timeout in us when window-limited
 #define RCV_TIMEOUT 250000    // Receive timeout for a previously-receiving packet
 
+#define BULK_DATA_TYPE   1
+#define RT_DATA_TYPE     2
+#define PKT_ACK_TYPE     17
+#define RFC8888_ACK_TYPE 18
+
 enum pktsend_tp {snd_init = 0, snd_sent, snd_recv, snd_lost};
 enum pktrecv_tp {rcv_init = 0, rcv_recv, rcv_ackd, rcv_lost};
 
@@ -25,7 +30,7 @@ struct datamessage_t {
     count_tp seq_nr;           // packet sequence number, should start with 1 and increase monotonic with packets sent
 
     void hton() {              // swap the bytes if needed
-        type = 1;
+        type = BULK_DATA_TYPE;
         timestamp = htonl(timestamp);
         echoed_timestamp = htonl(echoed_timestamp);
         seq_nr = htonl(seq_nr);
@@ -42,7 +47,7 @@ struct framemessage_t {
     count_tp frame_size;       // frame size in bytes
 
     void hton() {              // swap the bytes if needed
-        type = 2;
+        type = RT_DATA_TYPE;
         timestamp = htonl(timestamp);
         echoed_timestamp = htonl(echoed_timestamp);
         seq_nr = htonl(seq_nr);
@@ -63,7 +68,7 @@ struct ackmessage_t {
     bool error_L4S;            // receiver found a bleached/error ECN; stop using L4S_id on the sending packets!
 
     void set_stat() {
-        type = 1;
+        type = PKT_ACK_TYPE;
         ack_seq = htonl(ack_seq);
         timestamp = htonl(timestamp);
         echoed_timestamp = htonl(echoed_timestamp);
@@ -246,7 +251,7 @@ struct rfc8888ack_t {
             rptsize += sizeof(uint16_t);
         }
 
-        type = 2;
+        type = RFC8888_ACK_TYPE;
         begin_seq = htonl(begin_seq);
         num_reports = htons(reports);
         return rptsize;
