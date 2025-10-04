@@ -255,30 +255,22 @@ int main(int argc, char **argv)
             }
         } else {
             if (!app.rt_mode && inflight >= packet_window) {
-                if (num_timeout <= MAX_TIMEOUT) {
-                    pragueCC.ResetCCInfo();
-                    inflight = 0;
-                    perror("Reset PragueCC\n");
-                    pragueCC.GetCCInfo(pacing_rate, packet_window, packet_burst, packet_size);
-                    nextSend = now;
-                    num_timeout++;
-                } else {
-                    perror("Stop Bulk Prague sender\n");
-                    exit(1);
-                }
+                app.ExitIf(num_timeout > MAX_TIMEOUT, "stop prague sender due to consecutive timeout");
+                pragueCC.ResetCCInfo();
+                inflight = 0;
+                perror("Reset PragueCC\n");
+                pragueCC.GetCCInfo(pacing_rate, packet_window, packet_burst, packet_size);
+                nextSend = now;
+                num_timeout++;
             } else if (app.rt_mode && frame_inflight >= frame_window) {
-                if (num_timeout <= MAX_TIMEOUT) {
-                    pragueCC.ResetCCInfo();
-                    frame_inflight = 0;
-                    perror("Reset Real-Time PragueCC\n");
-                    nextSend = now;
-                    frame_sent = 0;
-                    frame_timer = 0;
-                    num_timeout++;
-                } else {
-                    perror("Stop Real-Time Prague sender\n");
-                    exit(1);
-                }
+                app.ExitIf(num_timeout > MAX_TIMEOUT, "stop prague sender due to consecutive timeout");
+                pragueCC.ResetCCInfo();
+                frame_inflight = 0;
+                perror("Reset Real-Time PragueCC\n");
+                nextSend = now;
+                frame_sent = 0;
+                frame_timer = 0;
+                num_timeout++;
             }
         }
         // Exceed time will be compensated (except reset)

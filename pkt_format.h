@@ -105,13 +105,13 @@ struct ackmessage_t {
         if (pkts_stat[ack_seq % PKT_BUFFER_SIZE] == snd_sent) {
             frm_pktsent[frm_index % FRM_BUFFER_SIZE]--;
             if ((frm_index != frm_sending || !is_sending) &&
-	        !frm_pktsent[frm_index % FRM_BUFFER_SIZE] &&
-		!frm_pktlost[frm_index % FRM_BUFFER_SIZE])
+                !frm_pktsent[frm_index % FRM_BUFFER_SIZE] &&
+                !frm_pktlost[frm_index % FRM_BUFFER_SIZE])
                 recv_frame++;
         } else if (pkts_stat[ack_seq % PKT_BUFFER_SIZE] == snd_lost) {
             frm_pktlost[frm_index % FRM_BUFFER_SIZE]--;
             if ((frm_index != frm_sending || !is_sending) &&
-	        !frm_pktlost[frm_index % FRM_BUFFER_SIZE]) {
+                !frm_pktlost[frm_index % FRM_BUFFER_SIZE]) {
                 lost_frame--;
                 if (!frm_pktsent[frm_index % FRM_BUFFER_SIZE])
                     recv_frame++;
@@ -125,7 +125,7 @@ struct ackmessage_t {
                     frm_index = frm_idx[(ack_seq - i) % PKT_BUFFER_SIZE];
                     frm_pktsent[frm_index % FRM_BUFFER_SIZE]--;
                     if ((frm_index != frm_sending || !is_sending) &&
-		        !frm_pktlost[frm_index % FRM_BUFFER_SIZE])
+                        !frm_pktlost[frm_index % FRM_BUFFER_SIZE])
                         lost_frame++;
                     frm_pktlost[frm_index % FRM_BUFFER_SIZE]++;
                     pkts_stat[(ack_seq - i) % PKT_BUFFER_SIZE] = snd_lost;
@@ -181,7 +181,7 @@ struct rfc8888ack_t {
     }
     uint16_t get_frame_stat(time_tp now, time_tp *sendtime, time_tp *pkts_rtt, count_tp &rcvd, count_tp &lost, count_tp &mark,
                             bool &error, pktsend_tp *pkts_stat, count_tp &last_ack, bool is_sending, count_tp frm_sending,
-			    count_tp &recv_frame, count_tp &lost_frame, count_tp *frm_idx, count_tp *frm_pktsent, count_tp *frm_pktlost) {
+                            count_tp &recv_frame, count_tp &lost_frame, count_tp *frm_idx, count_tp *frm_pktsent, count_tp *frm_pktlost){
         uint16_t frm_index;
         uint16_t num_rtt = 0;
         begin_seq = htonl(begin_seq);
@@ -192,7 +192,7 @@ struct rfc8888ack_t {
                 frm_index = frm_idx[(last_ack + 1) % PKT_BUFFER_SIZE];
                 frm_pktsent[frm_index % FRM_BUFFER_SIZE]--;
                 if ((frm_index != frm_sending || !is_sending) &&
-		    !frm_pktlost[frm_index % FRM_BUFFER_SIZE])
+                    !frm_pktlost[frm_index % FRM_BUFFER_SIZE])
                     lost_frame++;
                 frm_pktlost[frm_index % FRM_BUFFER_SIZE]++;
                 pkts_stat[(last_ack + 1) % PKT_BUFFER_SIZE] = snd_lost;
@@ -214,13 +214,13 @@ struct rfc8888ack_t {
                     if (pkts_stat[idx] == snd_sent) {
                         frm_pktsent[frm_index % FRM_BUFFER_SIZE]--;
                         if ((frm_index != frm_sending || !is_sending) &&
-			    !frm_pktsent[frm_index % FRM_BUFFER_SIZE] &&
-			    !frm_pktlost[frm_index % FRM_BUFFER_SIZE])
+                            !frm_pktsent[frm_index % FRM_BUFFER_SIZE] &&
+                            !frm_pktlost[frm_index % FRM_BUFFER_SIZE])
                             recv_frame++;
                     } else if (pkts_stat[idx] == snd_lost) {
                         frm_pktlost[frm_index % FRM_BUFFER_SIZE]--;
                         if ((frm_index != frm_sending || !is_sending) &&
-			    !frm_pktlost[frm_index % FRM_BUFFER_SIZE]) {
+                            !frm_pktlost[frm_index % FRM_BUFFER_SIZE]) {
                             lost_frame--;
                             if (!frm_pktsent[frm_index % FRM_BUFFER_SIZE])
                                 recv_frame++;
@@ -234,7 +234,7 @@ struct rfc8888ack_t {
                     frm_index = frm_idx[idx];
                     frm_pktsent[frm_index % FRM_BUFFER_SIZE]--;
                     if ((frm_index != frm_sending || !is_sending) &&
-		        !frm_pktlost[frm_index % FRM_BUFFER_SIZE])
+                        !frm_pktlost[frm_index % FRM_BUFFER_SIZE])
                         lost_frame++;
                     frm_pktlost[frm_index % FRM_BUFFER_SIZE]++;
                     pkts_stat[idx] = snd_lost;
@@ -246,8 +246,8 @@ struct rfc8888ack_t {
     uint16_t set_stat(count_tp &seq, count_tp maxseq, time_tp now, time_tp *recvtime, ecn_tp *recvecn, pktrecv_tp *recvseq, size_tp maxpkt) {
         uint16_t rptsize = sizeof(type) + sizeof(begin_seq) + sizeof(num_reports);
         uint16_t reports = maxseq - seq > (count_tp)((maxpkt - rptsize) / sizeof(uint16_t)) ?
-	                   (count_tp)((maxpkt - rptsize) / sizeof(uint16_t)) :
-			   maxseq - seq;
+                           (count_tp)((maxpkt - rptsize) / sizeof(uint16_t)) :
+                           maxseq - seq;
         begin_seq = seq;
         for (uint16_t i = 0; i < reports; i++, seq++) {
             uint16_t idx = (begin_seq + i) % PKT_BUFFER_SIZE;
