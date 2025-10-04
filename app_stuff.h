@@ -7,6 +7,7 @@
 
 #include <string>
 #include "prague_cc.h"
+#include "json_writer.h"
 
 // to avoid int64 printf incompatibility between platforms:
 #define C_STR(i) std::to_string(i).c_str()
@@ -25,6 +26,8 @@ struct AppStuff
     const char *rcv_addr;
     uint32_t rcv_port;
     bool connect;
+    bool json_output;
+    json_writer jw;
     size_tp max_pkt;
     rate_tp max_rate;
     // state for verbose reporting
@@ -48,13 +51,31 @@ struct AppStuff
     void ExitIf(bool stop, const char* reason)
     {
         if (stop) {
+            jw.clean();
             perror(reason);
             exit(1);
         }
     }
+
+    int valid_filename(const char *filename)
+    {
+        const char *illegal_chars = "\\/:*?\"<>|";
+
+        if (filename == NULL || strlen(filename) == 0)
+            return 0;
+        // Avoid missing filename
+        if (filename[0] == '-')
+            return 0;
+        for (int i = 0; filename[i] != '\0'; i++) {
+            if (strchr(illegal_chars, filename[i]) != NULL)
+                return 0;
+        }
+        return 1;
+    }
+
     AppStuff(bool sender, int argc, char **argv):
         sender_role(sender), verbose(false), quiet(false), rcv_addr("0.0.0.0"), rcv_port(8080), connect(false),
-        max_pkt(PRAGUE_INITMTU), max_rate(PRAGUE_MAXRATE), data_tm(1), ack_tm(1), rept_tm(REPT_PERIOD),
+        json_output(false), max_pkt(PRAGUE_INITMTU), max_rate(PRAGUE_MAXRATE), data_tm(1), ack_tm(1), rept_tm(REPT_PERIOD),
         acc_bytes_sent(0), acc_bytes_rcvd(0), acc_rtts(0), count_rtts(0), prev_pkts(0), prev_marks(0), prev_losts(0),
         rfc8888_ack(false), rfc8888_ackperiod(RFC8888_ACKPERIOD),
         rt_mode(false), rt_fps(FRAME_PER_SECOND), rt_frameduration(FRAME_DURATION)
@@ -88,6 +109,11 @@ struct AppStuff
                 quiet = true;
             } else if (arg == "-q") {
                 quiet = true;
+            } else if (arg == "-j" && i + 1 < argc) {
+                char *filename = argv[++i];
+                ExitIf(valid_filename(filename) != 1, "Error during converting json filename");
+                json_output = true;
+                jw.init(filename, true); // Default to append file
             } else if (arg == "--rfc8888") {
                 rfc8888_ack = true;
             } else if (arg == "--rfc8888ackperiod") {
@@ -112,6 +138,7 @@ struct AppStuff
                        "    -b <sender specific max bitrate, def: %s kbps>\n"
                        "    -m <max packet/ACK size, def: %s B>\n"
                        "    -v (for verbose prints)\n"
+                       "    -j (json_filename)\n"
                        "    -q (quiet)\n"
                        "    --rfc8888 (RFC8888 feddback)\n"
                        "    --rfc8888ackperiod <RFC8888 ACK period, def %s us>\n"
@@ -266,20 +293,45 @@ struct AppStuff
         float rtt = (count_rtts > 0) ? 0.001f * acc_rtts / count_rtts : 0.0f;
         float mark_prob = (pkts_received - prev_pkts > 0) ? 100.0f * (pkts_CE - prev_marks) / (pkts_received - prev_pkts) : 0.0f;
         float loss_prob = (pkts_received - prev_pkts > 0) ? 100.0f * (pkts_lost - prev_losts) / (pkts_received - prev_pkts) : 0.0f;
-        if (!rt_mode)
-            printf("[SENDER]: %.2f sec, Sent: %.3f Mbps, Rcvd: %.3f Mbps, RTT: %.3f ms, Mark: %.2f%%(%d/%d), "
-                   "Lost: %.2f%%(%d/%d), Pacing rate: %.3f Mbps, InFlight/W: %d/%d packets, "
-                   "InBurst/B: %d/%d packets\n",
-                   now / 1000000.0f, rate_sent, rate_rcvd, rtt, mark_prob, pkts_CE - prev_marks, pkts_received - prev_pkts,
-                   loss_prob, pkts_lost - prev_losts, pkts_received - prev_pkts, rate_pacing, pkt_inflight, pkt_window,
-                   pkt_inburst, pkt_burst);
-        else
-            printf("[RT-SENDER]: %.2f sec, Sent: %.3f Mbps, Rcvd: %.3f Mbps, RTT: %.3f ms, Mark: %.2f%%(%d/%d), "
-                   "Lost: %.2f%%(%d/%d), Pacing rate: %.3f Mbps, FrameInFlight/W: %d/%d frames, "
-                   "InFlight/W: %d/%d packets, InBurst/B: %d/%d packets\n",
-                   now / 1000000.0f, rate_sent, rate_rcvd, rtt, mark_prob, pkts_CE - prev_marks, pkts_received - prev_pkts,
-                   loss_prob, pkts_lost - prev_losts, pkts_received - prev_pkts, rate_pacing, frm_inflight, frm_window,
-                   pkt_inflight, pkt_window, pkt_inburst, pkt_burst);
+        if (!json_output) {
+            if (!rt_mode) {
+                printf("[SENDER]: %.2f sec, Sent: %.3f Mbps, Rcvd: %.3f Mbps, RTT: %.3f ms, Mark: %.2f%%(%d/%d), "
+                       "Lost: %.2f%%(%d/%d), Pacing rate: %.3f Mbps, InFlight/W: %d/%d packets, "
+                       "InBurst/B: %d/%d packets\n",
+                       now / 1000000.0f, rate_sent, rate_rcvd, rtt, mark_prob, pkts_CE - prev_marks, pkts_received - prev_pkts,
+                       loss_prob, pkts_lost - prev_losts, pkts_received - prev_pkts, rate_pacing, pkt_inflight, pkt_window,
+                       pkt_inburst, pkt_burst);
+            } else {
+                printf("[RT-SENDER]: %.2f sec, Sent: %.3f Mbps, Rcvd: %.3f Mbps, RTT: %.3f ms, Mark: %.2f%%(%d/%d), "
+                       "Lost: %.2f%%(%d/%d), Pacing rate: %.3f Mbps, FrameInFlight/W: %d/%d frames, "
+                       "InFlight/W: %d/%d packets, InBurst/B: %d/%d packets\n",
+                       now / 1000000.0f, rate_sent, rate_rcvd, rtt, mark_prob, pkts_CE - prev_marks, pkts_received - prev_pkts,
+                       loss_prob, pkts_lost - prev_losts, pkts_received - prev_pkts, rate_pacing, frm_inflight, frm_window,
+                       pkt_inflight, pkt_window, pkt_inburst, pkt_burst);
+            }
+        } else {
+            jw.reset();
+            jw.add_format_float("time", now / 1000000.0f, "%.2f");
+            jw.add_format_float("rcvd_sent", rate_sent, "%.3f");
+            jw.add_format_float("rcvd_rate", rate_rcvd, "%.3f");
+            jw.add_format_float("rtt", rtt, "%.3f");
+            jw.add_format_float("mark_prob", mark_prob, "%.2f%%");
+            jw.add_format_float("loss_prob", loss_prob, "%.2f%%");
+            jw.add_format_int32("pkt_rcvd", pkts_received - prev_pkts, "%d");
+            jw.add_format_int32("pkt_mark", pkts_CE - prev_marks, "%d");
+            jw.add_format_int32("pkt_lost", pkts_lost - prev_losts, "%d");
+            jw.add_format_float("pacing_rate", rate_pacing, "%.3f");
+            if (rt_mode) {
+                jw.add_format_int32("frame_inflight", frm_inflight, "%d");
+                jw.add_format_int32("frame_window", frm_window, "%d");
+            }
+            jw.add_format_int32("pkt_inflight", pkt_inflight, "%d");
+            jw.add_format_int32("pkt_window", pkt_window, "%d");
+            jw.add_format_int32("pkt_inburst", pkt_inburst, "%d");
+            jw.add_format_int32("pkt_burst", pkt_burst, "%d");
+            jw.finalize();
+            jw.dumpfile();
+        }
         rept_tm = now + REPT_PERIOD;
         acc_bytes_sent = 0;
         acc_bytes_rcvd = 0;
@@ -358,11 +410,26 @@ struct AppStuff
         float loss_prob = (!rfc8888_ack) ?
                           ((pkts_received - prev_pkts > 0) ? 100.0f * (pkts_lost - prev_losts) / (pkts_received - prev_pkts) : 0.0f) :
                           ((prev_pkts > 0) ? 100.0f * (prev_losts) / (prev_pkts) : 0.0f);
-        printf("[RECVER]: %.2f sec, Rcvd: %.3f Mbps, Sent: %.3f Mbps, %s: %.3f ms, Mark: %.2f%%(%d/%d), Lost: %.2f%%(%d/%d)\n",
-               now / 1000000.0f, rate_rcvd, rate_sent, (!rfc8888_ack)? "RTT": "ATO", rtt,
-               mark_prob, (!rfc8888_ack) ? (pkts_CE - prev_marks) : prev_marks,
-               (!rfc8888_ack) ? (pkts_received - prev_pkts) : prev_pkts, loss_prob,
-               (!rfc8888_ack) ? (pkts_lost - prev_losts) : prev_losts, (!rfc8888_ack) ? (pkts_received - prev_pkts) : prev_pkts);
+        if (!json_output) {
+            printf("[RECVER]: %.2f sec, Rcvd: %.3f Mbps, Sent: %.3f Mbps, %s: %.3f ms, Mark: %.2f%%(%d/%d), Lost: %.2f%%(%d/%d)\n",
+                   now / 1000000.0f, rate_rcvd, rate_sent, (!rfc8888_ack)? "RTT": "ATO", rtt,
+                   mark_prob, (!rfc8888_ack) ? (pkts_CE - prev_marks) : prev_marks,
+                   (!rfc8888_ack) ? (pkts_received - prev_pkts) : prev_pkts, loss_prob,
+                   (!rfc8888_ack) ? (pkts_lost - prev_losts) : prev_losts, (!rfc8888_ack) ? (pkts_received - prev_pkts) : prev_pkts);
+        } else {
+            jw.reset();
+            jw.add_format_float("time", now / 1000000.0f, "%.2f");
+            jw.add_format_float("rcvd_rate", rate_rcvd, "%.3f");
+            jw.add_format_float("rcvd_sent", rate_sent, "%.3f");
+            jw.add_format_float((!rfc8888_ack)? "RTT": "ATO", rtt, "%.3f");
+            jw.add_format_float("mark_prob", mark_prob, "%.2f%%");
+            jw.add_format_float("loss_prob", loss_prob, "%.2f%%");
+            jw.add_format_int32("pkt_rcvd", (!rfc8888_ack) ? (pkts_received - prev_pkts) : prev_pkts, "%d");
+            jw.add_format_int32("pkt_mark", (!rfc8888_ack) ? (pkts_CE - prev_marks) : prev_marks, "%d");
+            jw.add_format_int32("pkt_lost", (!rfc8888_ack) ? (pkts_lost - prev_losts) : prev_losts, "%d");
+            jw.finalize();
+            jw.dumpfile();
+        }
         rept_tm = now + REPT_PERIOD;
         acc_bytes_rcvd = 0;
         acc_bytes_sent = 0;
