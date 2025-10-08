@@ -113,7 +113,7 @@ struct AppStuff
                 char *filename = argv[++i];
                 ExitIf(valid_filename(filename) != 1, "Error during converting json filename");
                 json_output = true;
-                jw.init(filename, true); // Default to append file
+                jw.init(filename, false); // Aappend file (true) or Overwrite file (false)
             } else if (arg == "--rfc8888") {
                 rfc8888_ack = true;
             } else if (arg == "--rfc8888ackperiod") {
@@ -310,27 +310,28 @@ struct AppStuff
                        pkt_inflight, pkt_window, pkt_inburst, pkt_burst);
             }
         } else {
-            jw.reset();
-            jw.add_format_float("time", now / 1000000.0f, "%.2f");
-            jw.add_format_float("rcvd_sent", rate_sent, "%.3f");
-            jw.add_format_float("rcvd_rate", rate_rcvd, "%.3f");
-            jw.add_format_float("rtt", rtt, "%.3f");
-            jw.add_format_float("mark_prob", mark_prob, "%.2f%%");
-            jw.add_format_float("loss_prob", loss_prob, "%.2f%%");
-            jw.add_format_int32("pkt_rcvd", pkts_received - prev_pkts, "%d");
-            jw.add_format_int32("pkt_mark", pkts_CE - prev_marks, "%d");
-            jw.add_format_int32("pkt_lost", pkts_lost - prev_losts, "%d");
-            jw.add_format_float("pacing_rate", rate_pacing, "%.3f");
-            if (rt_mode) {
-                jw.add_format_int32("frame_inflight", frm_inflight, "%d");
-                jw.add_format_int32("frame_window", frm_window, "%d");
+            if (jw.reset() == 0) {
+                jw.add_format_int32("time", now, "%d");
+                jw.add_format_float("rcvd_sent", rate_sent, "%.3f");
+                jw.add_format_float("rcvd_rate", rate_rcvd, "%.3f");
+                jw.add_format_float("rtt", rtt, "%.3f");
+                jw.add_format_float("mark_prob", mark_prob, "%.2f%%");
+                jw.add_format_float("loss_prob", loss_prob, "%.2f%%");
+                jw.add_format_int32("pkt_rcvd", pkts_received - prev_pkts, "%d");
+                jw.add_format_int32("pkt_mark", pkts_CE - prev_marks, "%d");
+                jw.add_format_int32("pkt_lost", pkts_lost - prev_losts, "%d");
+                jw.add_format_float("pacing_rate", rate_pacing, "%.3f");
+                if (rt_mode) {
+                    jw.add_format_int32("frame_inflight", frm_inflight, "%d");
+                    jw.add_format_int32("frame_window", frm_window, "%d");
+                }
+                jw.add_format_int32("pkt_inflight", pkt_inflight, "%d");
+                jw.add_format_int32("pkt_window", pkt_window, "%d");
+                jw.add_format_int32("pkt_inburst", pkt_inburst, "%d");
+                jw.add_format_int32("pkt_burst", pkt_burst, "%d");
+                jw.finalize();
+                jw.dumpfile();
             }
-            jw.add_format_int32("pkt_inflight", pkt_inflight, "%d");
-            jw.add_format_int32("pkt_window", pkt_window, "%d");
-            jw.add_format_int32("pkt_inburst", pkt_inburst, "%d");
-            jw.add_format_int32("pkt_burst", pkt_burst, "%d");
-            jw.finalize();
-            jw.dumpfile();
         }
         rept_tm = now + REPT_PERIOD;
         acc_bytes_sent = 0;
@@ -417,18 +418,19 @@ struct AppStuff
                    (!rfc8888_ack) ? (pkts_received - prev_pkts) : prev_pkts, loss_prob,
                    (!rfc8888_ack) ? (pkts_lost - prev_losts) : prev_losts, (!rfc8888_ack) ? (pkts_received - prev_pkts) : prev_pkts);
         } else {
-            jw.reset();
-            jw.add_format_float("time", now / 1000000.0f, "%.2f");
-            jw.add_format_float("rcvd_rate", rate_rcvd, "%.3f");
-            jw.add_format_float("rcvd_sent", rate_sent, "%.3f");
-            jw.add_format_float((!rfc8888_ack)? "RTT": "ATO", rtt, "%.3f");
-            jw.add_format_float("mark_prob", mark_prob, "%.2f%%");
-            jw.add_format_float("loss_prob", loss_prob, "%.2f%%");
-            jw.add_format_int32("pkt_rcvd", (!rfc8888_ack) ? (pkts_received - prev_pkts) : prev_pkts, "%d");
-            jw.add_format_int32("pkt_mark", (!rfc8888_ack) ? (pkts_CE - prev_marks) : prev_marks, "%d");
-            jw.add_format_int32("pkt_lost", (!rfc8888_ack) ? (pkts_lost - prev_losts) : prev_losts, "%d");
-            jw.finalize();
-            jw.dumpfile();
+            if (jw.reset() == 0) {
+                jw.add_format_int32("time", now, "%d");
+                jw.add_format_float("rcvd_rate", rate_rcvd, "%.3f");
+                jw.add_format_float("rcvd_sent", rate_sent, "%.3f");
+                jw.add_format_float((!rfc8888_ack)? "RTT": "ATO", rtt, "%.3f");
+                jw.add_format_float("mark_prob", mark_prob, "%.2f%%");
+                jw.add_format_float("loss_prob", loss_prob, "%.2f%%");
+                jw.add_format_int32("pkt_rcvd", (!rfc8888_ack) ? (pkts_received - prev_pkts) : prev_pkts, "%d");
+                jw.add_format_int32("pkt_mark", (!rfc8888_ack) ? (pkts_CE - prev_marks) : prev_marks, "%d");
+                jw.add_format_int32("pkt_lost", (!rfc8888_ack) ? (pkts_lost - prev_losts) : prev_losts, "%d");
+                jw.finalize();
+                jw.dumpfile();
+            }
         }
         rept_tm = now + REPT_PERIOD;
         acc_bytes_rcvd = 0;

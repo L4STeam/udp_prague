@@ -2,7 +2,7 @@
 #define JSON_WRITER_H
 
 // json_writer.h:
-// Write string and number to json file
+// Write string and number to json and dump file
 //
 
 #ifdef WIN32
@@ -22,7 +22,8 @@ struct json_writer {
     size_t capacity;    // Current capacity (0 if error)
     size_t length;      // Curretn length
     bool add_comma;     // Add comma at the begining of the NEXT entry
-    FILE *file;         // file handler
+    char *file_name;
+    bool file_append;
 
     void clean() {
         if (!buffer)
@@ -30,9 +31,8 @@ struct json_writer {
         buffer = NULL;
         capacity = 0;
         length = 0;
-        if (!file)
-            fclose(file);
-        file = NULL;
+	if (!file_name)
+            free(file_name);
     }
 
     int reset() {
@@ -52,7 +52,7 @@ struct json_writer {
     }
 
     int remove_file_if_exists(const char *filename) {
-        // Return 0 if the file does not exis or the file can be removed
+        // Return 0 if file does not exis or file can be removed
         if (access(filename, F_OK) != 0 ||
             remove(filename) == 0)
                 return 0;
@@ -62,14 +62,14 @@ struct json_writer {
     int init(const char *filename, bool append_file = true) {
         if (!filename || remove_file_if_exists(filename) != 0)
             return -1;
-        if (append_file)
-            file = fopen(filename, "a");
-        else
-            file = fopen(filename, "w");
-        if (!file) {
-            perror("Error opening file.\n");
-            return -1;
-        }
+
+        file_append = append_file;
+        file_name = (char *)malloc(strlen(filename) + 1);
+	if (!file_name) {
+	    perror("Faile to allocate memory for file writer");
+	    return -1;
+	}
+        strcpy(file_name, filename);
         return reset();
     }
 
@@ -254,11 +254,20 @@ struct json_writer {
     }
 
     int dumpfile() {
-        if (!file || !buffer)
+        FILE *file = NULL;
+        if (!file_name || !buffer)
             return -1;
-
+        if (file_append)
+            file = fopen(file_name, "a");
+        else
+            file = fopen(file_name, "w");
+        if (!file) {
+            perror("Error opening file.\n");
+            return -1;
+        }
         fprintf(file, "%s", buffer);
         fflush(file);
+	fclose(file);
         return 0;
     }
 
