@@ -312,7 +312,7 @@ struct AppStuff
         } else {
             if (jw.reset() == 0) {
                 jw.add_format_int32("time", now, "%d");
-                jw.add_format_float("rcvd_sent", rate_sent, "%.3f");
+                jw.add_format_float("sent_rate", rate_sent, "%.3f");
                 jw.add_format_float("rcvd_rate", rate_rcvd, "%.3f");
                 jw.add_format_float("rtt", rtt, "%.3f");
                 jw.add_format_float("mark_prob", mark_prob, "%.2f%%");
@@ -421,7 +421,7 @@ struct AppStuff
             if (jw.reset() == 0) {
                 jw.add_format_int32("time", now, "%d");
                 jw.add_format_float("rcvd_rate", rate_rcvd, "%.3f");
-                jw.add_format_float("rcvd_sent", rate_sent, "%.3f");
+                jw.add_format_float("sent_rate", rate_sent, "%.3f");
                 jw.add_format_float((!rfc8888_ack)? "RTT": "ATO", rtt, "%.3f");
                 jw.add_format_float("mark_prob", mark_prob, "%.2f%%");
                 jw.add_format_float("loss_prob", loss_prob, "%.2f%%");

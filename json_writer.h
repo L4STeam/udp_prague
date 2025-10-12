@@ -31,7 +31,7 @@ struct json_writer {
         buffer = NULL;
         capacity = 0;
         length = 0;
-	if (!file_name)
+        if (!file_name)
             free(file_name);
     }
 
@@ -65,10 +65,10 @@ struct json_writer {
 
         file_append = append_file;
         file_name = (char *)malloc(strlen(filename) + 1);
-	if (!file_name) {
-	    perror("Faile to allocate memory for file writer");
-	    return -1;
-	}
+        if (!file_name) {
+            perror("Faile to allocate memory for file writer");
+            return -1;
+        }
         strcpy(file_name, filename);
         return reset();
     }
@@ -267,7 +267,7 @@ struct json_writer {
         }
         fprintf(file, "%s", buffer);
         fflush(file);
-	fclose(file);
+        fclose(file);
         return 0;
     }
 
