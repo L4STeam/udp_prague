@@ -32,6 +32,7 @@
 # Executables
 udp_prague_receiver
 udp_prague_sender
+rt_receiver
 *.exe
 *.out
 *.app
