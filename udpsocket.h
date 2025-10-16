@@ -18,6 +18,7 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <netinet/ip.h>
+#include <sys/time.h>
 #elif __FreeBSD__
 #include <unistd.h>
 #include <sys/socket.h>
