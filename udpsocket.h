@@ -18,7 +18,6 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <netinet/ip.h>
-#include <sys/time.h>
 #elif __FreeBSD__
 #include <unistd.h>
 #include <sys/socket.h>
@@ -29,6 +28,10 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#endif
+#ifdef __MUSL__
+#include <sys/time.h>
+#include <pthread.h>
 #endif
 #include "prague_cc.h"
 
@@ -76,6 +79,15 @@ public:
         if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
             perror("WSAStartup failed.\n");
             exit(1);
+        }
+#elif defined(__MUSL__)
+        if (geteuid() == 0) {
+            struct sched_param sp;
+            sp.sched_priority = sched_get_priority_max(SCHED_RR);
+            // SCHED_OTHER, SCHED_FIFO, SCHED_RR
+            if (pthread_setschedparam(pthread_self(), SCHED_RR, &sp) < 0) {
+                perror("Client set scheduler");
+            }
         }
 #elif defined(__linux__) || defined(__FreeBSD__)
         if (geteuid() == 0) {
