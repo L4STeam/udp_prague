@@ -5,13 +5,9 @@
 // Write string and number to json and dump file
 //
 
-#ifdef WIN32
-#include <io.h>
-#define access _access
-#define F_OK 0
-#else
+// Below are only been tested in Linux
 #include <unistd.h>
-#endif
+#include <sys/file.h>
 
 #include <string>
 #define INIT_CAPACITY 128
@@ -265,8 +261,16 @@ struct json_writer {
             perror("Error opening file.\n");
             return -1;
         }
+
+        int fd = fileno(file);
+        if (flock(fd, LOCK_EX) == -1) {
+            perror("file can not be locked\n");
+            fclose(file);
+            return -1;
+        }
         fprintf(file, "%s", buffer);
         fflush(file);
+        flock(fd, LOCK_UN);
         fclose(file);
         return 0;
     }

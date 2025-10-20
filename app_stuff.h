@@ -35,6 +35,7 @@ struct AppStuff
     time_tp ack_tm;         // ack diff reference
     // state for default (non-quiet) reporting
     time_tp rept_tm;        // timer for reporting interval
+    uint32_t rept_int;
     rate_tp acc_bytes_sent; // accumulated bytes sent
     rate_tp acc_bytes_rcvd; // accumulated bytes received
     rate_tp acc_rtts;       // accumulated rtts to calculate the average
@@ -76,7 +77,7 @@ struct AppStuff
     AppStuff(bool sender, int argc, char **argv):
         sender_role(sender), verbose(false), quiet(false), rcv_addr("0.0.0.0"), rcv_port(8080), connect(false),
         json_output(false), max_pkt(PRAGUE_INITMTU), max_rate(PRAGUE_MAXRATE), data_tm(1), ack_tm(1), rept_tm(REPT_PERIOD),
-        acc_bytes_sent(0), acc_bytes_rcvd(0), acc_rtts(0), count_rtts(0), prev_pkts(0), prev_marks(0), prev_losts(0),
+        rept_int(REPT_PERIOD), acc_bytes_sent(0), acc_bytes_rcvd(0), acc_rtts(0), count_rtts(0), prev_pkts(0), prev_marks(0), prev_losts(0),
         rfc8888_ack(false), rfc8888_ackperiod(RFC8888_ACKPERIOD),
         rt_mode(false), rt_fps(FRAME_PER_SECOND), rt_frameduration(FRAME_DURATION)
     {
@@ -104,6 +105,11 @@ struct AppStuff
                 char *p;
                 max_pkt = strtoull(argv[++i], &p, 10);
                 ExitIf(errno != 0 || *p != '\0', "Error during converting max packet size");
+            } else if (arg == "-i" && i + 1 < argc) {
+                char *p;
+                rept_int = strtoul(argv[++i], &p, 10);
+                ExitIf(errno != 0 || *p != '\0' || rept_int < 10000, "Error during converting min interval");
+                rept_tm = rept_int;
             } else if (arg == "-v") {
                 verbose = true;
                 quiet = true;
@@ -287,8 +293,8 @@ struct AppStuff
                      count_tp pkt_window, count_tp pkt_burst, count_tp pkt_inflight, count_tp pkt_inburst,
                      count_tp frm_window = 0, count_tp frm_inflight = 0)
     {
-        float rate_rcvd = 8.0f * acc_bytes_rcvd / (now - rept_tm + REPT_PERIOD);
-        float rate_sent = 8.0f * acc_bytes_sent / (now - rept_tm + REPT_PERIOD);
+        float rate_rcvd = 8.0f * acc_bytes_rcvd / (now - rept_tm + rept_int);
+        float rate_sent = 8.0f * acc_bytes_sent / (now - rept_tm + rept_int);
         float rate_pacing = 8.0f * pacing_rate / 1000000.0;
         float rtt = (count_rtts > 0) ? 0.001f * acc_rtts / count_rtts : 0.0f;
         float mark_prob = (pkts_received - prev_pkts > 0) ? 100.0f * (pkts_CE - prev_marks) / (pkts_received - prev_pkts) : 0.0f;
@@ -333,7 +339,7 @@ struct AppStuff
                 jw.dumpfile();
             }
         }
-        rept_tm = now + REPT_PERIOD;
+        rept_tm = now + rept_int;
         acc_bytes_sent = 0;
         acc_bytes_rcvd = 0;
         acc_rtts = 0;
@@ -402,8 +408,8 @@ struct AppStuff
     }
     void PrintReceiver(time_tp now, count_tp pkts_received = 0, count_tp pkts_CE = 0, count_tp pkts_lost = 0)
     {
-        float rate_rcvd = 8.0f * acc_bytes_rcvd / (now - rept_tm + REPT_PERIOD);
-        float rate_sent = 8.0f * acc_bytes_sent / (now - rept_tm + REPT_PERIOD);
+        float rate_rcvd = 8.0f * acc_bytes_rcvd / (now - rept_tm + rept_int);
+        float rate_sent = 8.0f * acc_bytes_sent / (now - rept_tm + rept_int);
         float rtt = (count_rtts > 0) ? 0.001f * acc_rtts / count_rtts : 0.0f;
         float mark_prob = (!rfc8888_ack) ?
                           ((pkts_received - prev_pkts > 0) ? 100.0f * (pkts_CE - prev_marks) / (pkts_received - prev_pkts) : 0.0f) :
@@ -432,7 +438,7 @@ struct AppStuff
                 jw.dumpfile();
             }
         }
-        rept_tm = now + REPT_PERIOD;
+        rept_tm = now + rept_int;
         acc_bytes_rcvd = 0;
         acc_bytes_sent = 0;
         acc_rtts = 0;
