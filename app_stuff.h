@@ -15,6 +15,7 @@
 #define RFC8888_ACKPERIOD 25000
 #define FRAME_PER_SECOND 60
 #define FRAME_DURATION 10000
+#define PORT 8080
 
 // app related stuff collected in this object to avoid obfuscation of the main Prague loop
 struct AppStuff
@@ -36,6 +37,7 @@ struct AppStuff
     // state for default (non-quiet) reporting
     time_tp rept_tm;        // timer for reporting interval
     uint32_t rept_int;
+    const char *rept_name;
     rate_tp acc_bytes_sent; // accumulated bytes sent
     rate_tp acc_bytes_rcvd; // accumulated bytes received
     rate_tp acc_rtts;       // accumulated rtts to calculate the average
@@ -75,9 +77,10 @@ struct AppStuff
     }
 
     AppStuff(bool sender, int argc, char **argv):
-        sender_role(sender), verbose(false), quiet(false), rcv_addr("0.0.0.0"), rcv_port(8080), connect(false),
-        json_output(false), max_pkt(PRAGUE_INITMTU), max_rate(PRAGUE_MAXRATE), data_tm(1), ack_tm(1), rept_tm(REPT_PERIOD),
-        rept_int(REPT_PERIOD), acc_bytes_sent(0), acc_bytes_rcvd(0), acc_rtts(0), count_rtts(0), prev_pkts(0), prev_marks(0), prev_losts(0),
+        sender_role(sender), verbose(false), quiet(false), rcv_addr("0.0.0.0"), rcv_port(PORT), connect(false),
+        json_output(false), max_pkt(PRAGUE_INITMTU), max_rate(PRAGUE_MAXRATE), data_tm(1), ack_tm(1),
+        rept_tm(REPT_PERIOD), rept_int(REPT_PERIOD), rept_name(""),
+        acc_bytes_sent(0), acc_bytes_rcvd(0), acc_rtts(0), count_rtts(0), prev_pkts(0), prev_marks(0), prev_losts(0),
         rfc8888_ack(false), rfc8888_ackperiod(RFC8888_ACKPERIOD),
         rt_mode(false), rt_fps(FRAME_PER_SECOND), rt_frameduration(FRAME_DURATION)
     {
@@ -120,38 +123,45 @@ struct AppStuff
                 ExitIf(valid_filename(filename) != 1, "Error during converting json filename");
                 json_output = true;
                 jw.init(filename, false); // Aappend file (true) or Overwrite file (false)
+            } else if (arg == "--name" && i + 1 < argc) {
+                char *name = argv[++i];
+                rept_name = name;
             } else if (arg == "--rfc8888") {
                 rfc8888_ack = true;
-            } else if (arg == "--rfc8888ackperiod") {
+            } else if (arg == "--rfc8888ackperiod" && i + 1 < argc) {
                 char *p;
                 rfc8888_ackperiod = strtoul(argv[++i], &p, 10);
                 ExitIf(errno != 0 || *p != '\0', "Error during converting RFC8888 ACK period");
             } else if (arg == "--rtmode") {
                 rt_mode = true;
-            } else if (arg == "--fps") {
+            } else if (arg == "--fps" && i + 1 < argc) {
                 char *p;
                 rt_fps = strtoul(argv[++i], &p, 10);
                 ExitIf(errno != 0 || *p != '\0', "Error during converting RT mode frame per second");
-            } else if (arg == "--frameduration") {
+            } else if (arg == "--frameduration" && i + 1 < argc) {
                 char *p;
                 rt_frameduration = strtoul(argv[++i], &p, 10);
                 ExitIf(errno != 0 || *p != '\0', "Error during converting RT mode frame duration");
             } else {
                 printf("UDP Prague %s usage:\n"
                        "    -a <IP address, def: 0.0.0.0 or 127.0.0.1 if client>\n"
-                       "    -p <server port, def: 8080>\n"
+                       "    -p <server port, def: %s>\n"
                        "    -c (connect first as a client, otherwise bind and wait for connection)\n"
                        "    -b <sender specific max bitrate, def: %s kbps>\n"
                        "    -m <max packet/ACK size, def: %s B>\n"
                        "    -v (for verbose prints)\n"
-                       "    -j (json_filename)\n"
+                       "    -i <report interval, def: %s us>"
+                       "    -j <json_filename, otherwise use stdout>\n"
+                       "    -name <json \"name\" value, def: %s>"
                        "    -q (quiet)\n"
                        "    --rfc8888 (RFC8888 feddback)\n"
                        "    --rfc8888ackperiod <RFC8888 ACK period, def %s us>\n"
                        "    --rtmode (Real-Time mode)\n"
                        "    --fps <Frame-per-second, def %s fps>\n"
                        "    --frameduration <Frame duration, def %s us>\n",
-                       sender_role ? "sender" : "receiver", C_STR(PRAGUE_MAXRATE / 125), C_STR(PRAGUE_INITMTU),
+                       sender_role ? "sender" : "receiver", C_STR(PORT),
+                       C_STR(PRAGUE_MAXRATE / 125), C_STR(PRAGUE_INITMTU), C_STR(REPT_PERIOD),
+                       sender_role ? "sender" : "receiver",
                        C_STR(RFC8888_ACKPERIOD), C_STR(FRAME_PER_SECOND), C_STR(FRAME_DURATION));
                 exit(1);
             }
@@ -160,6 +170,8 @@ struct AppStuff
             rcv_addr = "127.0.0.1";
         if (max_rate < PRAGUE_MINRATE || max_rate > PRAGUE_MAXRATE)
             max_rate = PRAGUE_MAXRATE;
+        if (json_output && rept_name != NULL && rept_name[0] == '\0')
+            rept_name = sender_role ? "sender" : "receiver";
         if (rt_mode && rt_fps * rt_frameduration > 1000000)
             rt_frameduration = 1000000 / rt_fps;
     }
@@ -317,6 +329,7 @@ struct AppStuff
             }
         } else {
             if (jw.reset() == 0) {
+                jw.add_format_string("name", rept_name, "%s");
                 jw.add_format_int32("time", now, "%d");
                 jw.add_format_float("sent_rate", rate_sent, "%.3f");
                 jw.add_format_float("rcvd_rate", rate_rcvd, "%.3f");
@@ -425,6 +438,7 @@ struct AppStuff
                    (!rfc8888_ack) ? (pkts_lost - prev_losts) : prev_losts, (!rfc8888_ack) ? (pkts_received - prev_pkts) : prev_pkts);
         } else {
             if (jw.reset() == 0) {
+                jw.add_format_string("name", rept_name, "%s");
                 jw.add_format_int32("time", now, "%d");
                 jw.add_format_float("rcvd_rate", rate_rcvd, "%.3f");
                 jw.add_format_float("sent_rate", rate_sent, "%.3f");
