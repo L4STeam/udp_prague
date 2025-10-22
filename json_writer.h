@@ -121,6 +121,21 @@ struct json_writer {
         return append(temp);
     }
 
+    int add_format_uint64(const char *key, const uint64_t value, const char *format = "%llu") {
+        char temp[2*INIT_CAPACITY];
+        char formatted[INIT_CAPACITY];
+
+        if (!key || !format) {
+            perror("Skip adding empty key/uint64 into JSON writer.\n");
+            return -1;
+        }
+        if (add_comma_if_needed() != 0)
+            return -1;
+        snprintf(formatted, sizeof(formatted), format, value);
+        snprintf(temp, sizeof(temp), "\"%s\":\"%s\"", key, formatted);
+        return append(temp);
+    }
+
     int add_format_uint32(const char *key, const uint32_t value, const char *format = "%u") {
         char temp[2*INIT_CAPACITY];
         char formatted[INIT_CAPACITY];
@@ -194,7 +209,20 @@ struct json_writer {
         snprintf(temp, sizeof(temp), format, value);
         return append(temp);
     }
-    
+
+    int add_array_uint64(const uint64_t value, const char *format = "%llu") {
+        char temp[INIT_CAPACITY];
+
+        if (!format) {
+            perror("Skip adding empty uint64 element into JSON writer.\n");
+            return -1;
+        }
+        if (add_comma_if_needed() != 0)
+            return -1;
+        snprintf(temp, sizeof(temp), format, value);
+        return append(temp);
+    }
+
     int add_array_uint32(const uint32_t value, const char *format = "%u") {
         char temp[INIT_CAPACITY];
 

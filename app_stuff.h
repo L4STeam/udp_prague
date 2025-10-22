@@ -5,6 +5,7 @@
 // Collecting all app related stuff in this object
 //
 
+#include <chrono>
 #include <string>
 #include "prague_cc.h"
 #include "json_writer.h"
@@ -330,7 +331,8 @@ struct AppStuff
         } else {
             if (jw.reset() == 0) {
                 jw.add_format_string("name", rept_name, "%s");
-                jw.add_format_int32("time", now, "%d");
+                jw.add_format_uint64("time", std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count(), "%llu");
+                jw.add_format_int32("time_since_start", now, "%d");
                 jw.add_format_float("sent_rate", rate_sent, "%.3f");
                 jw.add_format_float("rcvd_rate", rate_rcvd, "%.3f");
                 jw.add_format_float("rtt", rtt, "%.3f");
@@ -439,7 +441,8 @@ struct AppStuff
         } else {
             if (jw.reset() == 0) {
                 jw.add_format_string("name", rept_name, "%s");
-                jw.add_format_int32("time", now, "%d");
+                jw.add_format_uint64("time", std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count(), "%llu");
+                jw.add_format_int32("time_since_start", now, "%d");
                 jw.add_format_float("rcvd_rate", rate_rcvd, "%.3f");
                 jw.add_format_float("sent_rate", rate_sent, "%.3f");
                 jw.add_format_float((!rfc8888_ack)? "RTT": "ATO", rtt, "%.3f");
