@@ -473,6 +473,7 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     }
 
     // Updating dependant parameters
+    // align and limit pacing rate and fractional window
     if (m_cca_mode != cca_prague_rate)
         m_pacing_rate = m_fractional_window / srtt;   // in B/s
     if (m_pacing_rate < m_min_rate)
@@ -480,10 +481,10 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     if (m_pacing_rate > m_max_rate)
         m_pacing_rate = m_max_rate;
     m_fractional_window = m_pacing_rate * srtt;       // in uB
-
     if (m_fractional_window == 0)
         m_fractional_window = 1;
 
+    //determine packet size
     size_tp old_packet_size = m_packet_size;
     m_packet_size = m_pacing_rate * m_vrtt / 1000000 / MIN_PKT_WIN;            // B/p = B/s * 25ms/burst / 2p/burst
     if (m_packet_size < PRAGUE_MINMTU)
@@ -493,21 +494,26 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     if (m_packet_size != old_packet_size) {
         m_cubic_K = m_cubic_K * CubicRoot(old_packet_size) / CubicRoot(m_packet_size);
     }
+
+    // packet burst
     m_packet_burst = count_tp(m_pacing_rate * BURST_TIME / 1000000 / m_packet_size);  // p = B/s * 250µs / B/p
     if (m_packet_burst < MIN_PKT_BURST) {
         m_packet_burst = MIN_PKT_BURST;
     }
-    m_packet_window = count_tp((m_fractional_window / 1000000 + m_packet_size - 1) / m_packet_size);
+
+    // packet window: allow 3% higher pacing rate and round up (add one). Window should not block pacing; block only when the network has a freeze or hickup.
+    m_packet_window = count_tp((m_fractional_window * (100 + RATE_OFFSET) / 100000000) / m_packet_size + 1);
     if (m_packet_window < MIN_PKT_WIN) {
         m_packet_window = MIN_PKT_WIN;
     }
 
+    // remember this previous ACK for the next ACK
     m_cc_ts = ts;
     m_packets_received = packets_received; // can NOT go down
     m_packets_CE = packets_CE;             // can NOT go down
     m_packets_lost = packets_lost;         // CAN go down
     m_packets_sent = packets_sent;         // can NOT go down
-    m_error_L4S = error_L4S;
+    if (error_L4S) m_error_L4S = true;     // can NOT reset
     inflight = packets_sent - m_packets_received - m_packets_lost;
     return true;
 }
