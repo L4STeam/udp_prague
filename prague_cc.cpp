@@ -266,18 +266,18 @@ bool PragueCC::PacketReceived(         // call this when a packet is received fr
     const time_tp timestamp,           // timestamp from peer, freeze and keep this time
     const time_tp echoed_timestamp)    // echoed_timestamp can be used to calculate the RTT
 {
+    // Ignore older or invalid ACKs (these counters can't go down in new ACKs)
     if ((m_cc_state != cs_init) && (m_r_prev_ts - timestamp > 0)) // is this an older timestamp?
         return false;
     time_tp ts = Now();
     m_ts_remote = ts - timestamp;  // freeze the remote timestamp
-    //m_ts_remote = timestamp;  // do not freeze the remote timestamp
-    m_rtt = ts - echoed_timestamp;
-    m_rtt_min = (m_rtt_min > m_rtt) ? m_rtt : m_rtt_min;
+    m_rtt = ts - echoed_timestamp; // calculate the new rtt sample
+    m_rtt_min = (m_rtt_min > m_rtt) ? m_rtt : m_rtt_min; // keep track of the minimum rtt
     if (m_cc_state != cs_init)
-        m_srtt += (m_rtt - m_srtt) >> 3;
+        m_srtt += (m_rtt - m_srtt) >> 3;  // smooth with EWMA of 1/8th
     else
         m_srtt = m_rtt;
-    m_vrtt = (m_srtt > REF_RTT) ? m_srtt : REF_RTT;
+    m_vrtt = (m_srtt > REF_RTT) ? m_srtt : REF_RTT; // calculate the virtual RTT (if srtt < 25ms reference RTT)
     m_r_prev_ts = timestamp;
     return true;
 }
@@ -290,17 +290,24 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     bool error_L4S,            // receiver found a bleached/error ECN; stop using L4S_id on the sending packets!
     count_tp &inflight)        // how many packets are in flight after the ACKed
 {
-    if ((m_packets_received - packets_received > 0) || (m_packets_CE - packets_CE > 0)) // this is an older or invalid ACK (these counters can't go down)
+    // Ignore older or invalid ACKs (these counters can't go down in new ACKs)
+    if ((m_packets_received - packets_received > 0) || (m_packets_CE - packets_CE > 0))
         return false;
 
+    // select the rate- or window-based update, but keep the rate stable on switching
     time_tp pacing_interval = m_packet_size * 1000000 / m_pacing_rate; // calculate the max expected rtt from pacing
     //printf("FrW: %ld, SRTT: %d, Pacing interval: %ld, packet_size: %ld, packet_burst: %d, pacing_rate: %ld\n", m_fractional_window, m_srtt, m_packet_size * 1000000 * m_packet_burst / m_pacing_rate, m_packet_size, m_packet_burst, m_pacing_rate);
-    time_tp srtt = (m_srtt);// > pacing_interval) ? m_srtt : pacing_interval; // take into account the pacing delay
-    if (m_cc_state == cs_init)  // initialize the window with the initial pacing rate
+    time_tp srtt = (m_srtt);
+
+    // initialize the window with the initial pacing rate
+    if (m_cc_state == cs_init)
     {
         m_fractional_window = srtt * m_pacing_rate;
         m_cc_state = cs_cong_avoid;
     }
+
+    // select the rate- or window-based update, but keep the rate stable on switching
+    // below the pacing interval or 2ms the RTT is too unstable to calculate a rate. Also no queue can be identified reliably.
     if ((srtt <= 2000) || (srtt <= pacing_interval)) {
         // keep rate stable when large dip in srtt
         m_cca_mode = cca_prague_rate;
@@ -311,7 +318,9 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
             m_fractional_window = srtt * m_pacing_rate;
         m_cca_mode = cca_prague_win;
     }
+    
     time_tp ts = Now();
+    
     // Update alpha if both a window and a virtual rtt are passed
     if ((packets_received + packets_lost - m_alpha_packets_sent > 0) && (ts - m_alpha_ts - m_vrtt >= 0)) {
     //if ((packets_received - m_alpha_packets_received + packets_lost - m_alpha_packets_lost > max(2, m_fractional_window / m_packet_size / 1000000))
@@ -328,7 +337,8 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
         if (m_rtts_to_growth > 0)
             m_rtts_to_growth--;
     }
-    // Undo that window reduction if the lost count is again down to the one that caused a reduction (reordered iso loss)
+    
+    // Undo the window reduction if the lost count is again down to the one that caused a reduction (reordered iso loss)
     if ((m_lost_window > 0 || m_lost_rate > 0) && (m_loss_packets_lost - packets_lost >= 0)) {
         m_cca_mode = m_loss_cca;                   // restore the cca mode before recovery
         if (m_cca_mode == cca_prague_rate) {
@@ -344,11 +354,13 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
         m_lost_rtts_to_growth = 0;                 // clear all lost growth rtts
         m_cc_state = cs_cong_avoid;                // restore the loss state
     }
+    
     // Clear the in_loss state if in_loss and a real and virtual rtt are passed
     if ((m_cc_state == cs_in_loss) && (packets_received + packets_lost - m_loss_packets_sent > 0) && (ts - m_loss_ts - m_vrtt >= 0)) {
         m_cc_state = cs_cong_avoid;                // set the loss state to avoid multiple reductions per RTT
         // keep all loss info for undo if later reordering is found (loss is reduced to m_loss_packets_lost again)
     }
+    
     // Reduce the window if the loss count is increased
     if ((m_cc_state != cs_in_loss) && (m_packets_lost - packets_lost < 0)) {
         // first reset the growth waiting time, but prepare to undo
@@ -380,6 +392,7 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
         m_loss_ts = ts;                           // set the loss timestampt to check if a virtRtt is passed
         m_loss_packets_lost = m_packets_lost;     // remember the previous packets_lost for the undo if needed
     }
+    
     // Increase the window if not in-loss for all the non-CE ACKs
     count_tp acks = (packets_received - m_packets_received) - (packets_CE - m_packets_CE);
     if ((m_cc_state != cs_in_loss) && (acks > 0))
@@ -443,6 +456,7 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     if ((m_cc_state == cs_in_cwr) && (packets_received + packets_lost - m_cwr_packets_sent > 0) && (ts - m_cwr_ts - m_vrtt >= 0)) {
         m_cc_state = cs_cong_avoid;                // set the loss state to avoid multiple reductions per RTT
     }
+
     // Reduce the window if the CE count is increased, and if not in-loss and not in-cwr
     if ((m_cc_state == cs_cong_avoid) && (m_packets_CE - packets_CE < 0)) {
         m_rtts_to_growth = m_pacing_rate / RATE_STEP + MIN_STEP; // first reset the growth waiting time
