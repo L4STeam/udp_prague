@@ -296,7 +296,10 @@ struct json_writer {
             fclose(file);
             return -1;
         }
-        fprintf(file, "%s", buffer);
+        if (file_append)
+            fprintf(file, "%s\n", buffer);
+        else
+            fprintf(file, "%s", buffer);
         fflush(file);
         flock(fd, LOCK_UN);
         fclose(file);
