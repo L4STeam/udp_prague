@@ -100,7 +100,9 @@ public:
 
     ~PragueCC();
 
-    time_tp Now();             // will have to return a monotonic increasing signed int 32 which will wrap around (after 4000 seconds)
+    virtual time_tp Now();     // Can be overwritten (e.g. for simulators),
+                               // needs a monotonic increasing signed int 32 which wraps around (after exactly 4294.967296 seconds)
+                               // and skips 0 as a special value, so value 1 lasts 2 microseconds
 
     bool RFC8888Received(
         size_t num_rtt,
