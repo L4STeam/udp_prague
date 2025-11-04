@@ -364,7 +364,7 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     // Reduce the window if the loss count is increased
     if ((m_cc_state != cs_in_loss) && (m_packets_lost - packets_lost < 0)) {
         // vRTTs needed to get to the time where a REF_RTT flow would hit the same bottleneck again. after that do 1ms growth
-        count_tp rtts_to_growth = m_pacing_rate / 2 / m_max_packet_size * REF_RTT / m_srtt * REF_RTT / 1000000; // rescale twice
+        count_tp rtts_to_growth = m_pacing_rate / 2 / m_max_packet_size * REF_RTT / m_vrtt * REF_RTT / 1000000; // rescale twice
         // first reset the growth waiting time, but prepare to undo
         m_lost_rtts_to_growth += rtts_to_growth - m_rtts_to_growth;  // accumulate over different reordering rtts if applicable
         if (m_lost_rtts_to_growth > rtts_to_growth)
