@@ -15,7 +15,7 @@ enum ecn_tp: uint8_t {ecn_not_ect=0, ecn_l4s_id=1, ecn_ect0=2, ecn_ce=3};
 typedef uint8_t fps_tp;      // frames per second: any value from 1 till 255 can be used, 0 must be used for bulk
 typedef int64_t prob_tp;
 enum cs_tp {cs_init, cs_cong_avoid, cs_in_loss, cs_in_cwr};
-enum cca_tp {cca_prague_win, cca_prague_rate, cca_cubic};  // which CC algorithm is active
+enum cca_tp {cca_prague_win, cca_prague_rate};  // which CC algorithm is active
 
 static const count_tp PRAGUE_INITWIN  = 10;          // Prague initial window size
 static const size_tp  PRAGUE_MINMTU   = 150;         // Prague minmum MTU suze
@@ -37,7 +37,6 @@ struct PragueState {
 // both-end variables
     time_tp   m_ts_remote;     // to keep the frozen timestamp from the peer, and echo it back defrosted
     time_tp   m_rtt;           // last reported rtt (only for stats)
-    time_tp   m_rtt_min;       // minimum report rtt (for cubic)
     time_tp   m_srtt;          // our own measured and smoothed RTT (smoothing factor = 1/8)
     time_tp   m_vrtt;          // our own virtual RTT = max(srtt, 25ms)
 // receiver-end variables (to be echoed to sender)
@@ -53,11 +52,6 @@ struct PragueState {
     count_tp  m_packets_lost;
     count_tp  m_packets_sent;
     bool      m_error_L4S;            // latest known receiver-end error state
-    // sender-end cubic variabls
-    time_tp   m_cubic_epoch_start;
-    window_tp m_cubic_last_max_fracwin;
-    uint32_t  m_cubic_K;
-    window_tp m_cubic_origin_fracwin;
     // for alpha calculation, keep the previous alpha variables' state
     time_tp   m_alpha_ts;
     count_tp  m_alpha_packets_received;
