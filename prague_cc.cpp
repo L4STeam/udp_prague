@@ -1,79 +1,6 @@
 #include <chrono>
 #include "prague_cc.h"
 
-// CUBIC consts and helpers
-
-const uint16_t BETA = 717;                 // Beta used in Cube increase
-const uint16_t BETA_SCALE = 1024;          // Beta scale
-const uint16_t C_SCALED = 41;              // C used in Cube increase
-const uint32_t TIME_SCALE = 250;           // Time unit in # of [us]
-const uint64_t RTT_SCALED = (1 << 10) * (1000 / TIME_SCALE) * (1000 / TIME_SCALE) * (1000 / TIME_SCALE) / 10; // Cube scaling factor
-
-int fls(int x)
-{
-    int r = 32;
-
-    if (!x)
-        return 0;
-    if (!(x & 0xffff0000u)) {
-        x <<= 16;
-        r -= 16;
-    }
-    if (!(x & 0xff000000u)) {
-        x <<= 8;
-        r -= 8;
-    }
-    if (!(x & 0xf0000000u)) {
-        x <<= 4;
-        r -= 4;
-    }
-    if (!(x & 0xc0000000u)) {
-        x <<= 2;
-        r -= 2;
-    }
-    if (!(x & 0x80000000u)) {
-        x <<= 1;
-        r -= 1;
-    }
-    return r;
-}
-
-uint32_t fls64(uint64_t x)
-{
-    uint32_t h = x >> 32;
-    if (h)
-        return fls(h) + 32;
-    return fls(x);
-}
-
-uint32_t CubicRoot(uint64_t a)
-{
-    uint32_t x, b, shift;
-    static const uint8_t v[] = {
-        /* 0x00 */    0,   54,   54,   54,  118,  118,  118,  118,
-        /* 0x08 */  123,  129,  134,  138,  143,  147,  151,  156,
-        /* 0x10 */  157,  161,  164,  168,  170,  173,  176,  179,
-        /* 0x18 */  181,  185,  187,  190,  192,  194,  197,  199,
-        /* 0x20 */  200,  202,  204,  206,  209,  211,  213,  215,
-        /* 0x28 */  217,  219,  221,  222,  224,  225,  227,  229,
-        /* 0x30 */  231,  232,  234,  236,  237,  239,  240,  242,
-        /* 0x38 */  244,  245,  246,  248,  250,  251,  252,  254,
-    };
-
-    b = fls64(a);
-    if (b < 7) {
-        return ((uint32_t)v[(uint32_t)a] + 35) >> 6;
-    }
-
-    b = ((b * 84) >> 8) - 1;
-    shift = (a >> (b * 3));
-
-    x = ((uint32_t)(((uint32_t)v[shift] + 10) << b)) >> 6;
-    x = (2 * x + (uint32_t)(a / ((uint64_t)x * (uint64_t)(x - 1))));
-    x = ((x * 341) >> 10);
-    return x;
-}
-
 uint64_t mul_64_64_shift(uint64_t left, uint64_t right, uint32_t shift = 0)
 {
     uint64_t a0 = left & ((1ULL << 32)-1);
@@ -185,7 +112,6 @@ PragueCC::PragueCC(
 // both end variables
     m_ts_remote = 0;    // to keep the frozen timestamp from the peer, and echo it back defrosted
     m_rtt = 0;          // last reported rtt (only for stats)
-    m_rtt_min = 1000000;// minimum report rtt (for cubic)
     m_srtt = 0;         // our own measured and smoothed RTT (smoothing factor = 1/8)
     m_vrtt = 0;         // our own virtual RTT = max(srtt, 25ms)
 // receiver end variables (to be echoed to sender)
@@ -201,11 +127,6 @@ PragueCC::PragueCC(
     m_packets_lost = 0;
     m_packets_sent = 0;
     m_error_L4S = false; // latest known receiver end error state
-    // Cubic
-    m_cubic_epoch_start = 0;
-    m_cubic_last_max_fracwin = 0;
-    m_cubic_K = 0;
-    m_cubic_origin_fracwin = 0;
     // for alpha calculation, keep the previous alpha variables' state
     m_alpha_ts = ts_now;  // start recording alpha from now on (every vrtt)
     m_alpha_packets_received = 0;
@@ -252,7 +173,6 @@ bool PragueCC::RFC8888Received(size_t num_rtt, time_tp *pkts_rtt)
 {
     for (size_t i = 0; i < num_rtt; i++) {
         m_rtt = pkts_rtt[i];
-        m_rtt_min = (m_rtt_min > m_rtt) ? m_rtt : m_rtt_min;
         if (m_cc_state != cs_init)
             m_srtt += (m_rtt - m_srtt) >> 3;
         else
@@ -272,7 +192,6 @@ bool PragueCC::PacketReceived(         // call this when a packet is received fr
     time_tp ts = Now();
     m_ts_remote = ts - timestamp;  // freeze the remote timestamp
     m_rtt = ts - echoed_timestamp; // calculate the new rtt sample
-    m_rtt_min = (m_rtt_min > m_rtt) ? m_rtt : m_rtt_min; // keep track of the minimum rtt
     if (m_cc_state != cs_init)
         m_srtt += (m_rtt - m_srtt) >> 3;  // smooth with EWMA of 1/8th
     else
@@ -360,33 +279,26 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
         m_cc_state = cs_cong_avoid;                // set the loss state to avoid multiple reductions per RTT
         // keep all loss info for undo if later reordering is found (loss is reduced to m_loss_packets_lost again)
     }
-    
+
     // Reduce the window if the loss count is increased
     if ((m_cc_state != cs_in_loss) && (m_packets_lost - packets_lost < 0)) {
         // vRTTs needed to get to the time where a REF_RTT flow would hit the same bottleneck again. after that do 1ms growth
         count_tp rtts_to_growth = m_pacing_rate / 2 / m_max_packet_size * REF_RTT / m_vrtt * REF_RTT / 1000000; // rescale twice
         // first reset the growth waiting time, but prepare to undo
         m_lost_rtts_to_growth += rtts_to_growth - m_rtts_to_growth;  // accumulate over different reordering rtts if applicable
+
         if (m_lost_rtts_to_growth > rtts_to_growth)
             m_lost_rtts_to_growth = rtts_to_growth;  // no need to undo more than what will be used next
         m_rtts_to_growth = rtts_to_growth;        // also equivalent to m_rtts_to_growth += m_lost_rtts_to_growth; so can be undone with -=
+
         if (m_cca_mode == cca_prague_win) {
             m_lost_window = m_fractional_window / 2;  // remember the reduction
             m_fractional_window -= m_lost_window;     // reduce the window
-        } else if (m_cca_mode == cca_cubic) {
-            m_cubic_epoch_start = 0;
-            if (m_fractional_window < m_cubic_last_max_fracwin)
-                m_cubic_last_max_fracwin = (m_fractional_window * (BETA_SCALE + BETA)) / (2 * BETA_SCALE);
-            else
-                m_cubic_last_max_fracwin = m_fractional_window;
-
-            m_lost_window = m_fractional_window * (BETA_SCALE - BETA) / BETA_SCALE;  // remember the reduction
-            m_fractional_window -= m_lost_window;     // reduce the window
-        }
-        else { // (m_cca_mode == cca_prague_rate)
+        } else { // (m_cca_mode == cca_prague_rate)
             m_lost_rate = m_pacing_rate / 2;          // remember the reduction
             m_pacing_rate -= m_lost_rate;             // reduce the rate
         }
+
         m_cc_state = cs_in_loss;                  // set the loss state to avoid multiple reductions per RTT
         m_loss_cca = m_cca_mode;
         m_loss_packets_sent = packets_sent;       // set when to end in_loss state
@@ -415,30 +327,6 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
             m_fractional_window += scaled_increase;
 
             //m_fractional_window += acks * (uint64_t) m_packet_size * srtt * 1000000 / m_vrtt * (uint64_t) increment * srtt / m_vrtt * 1000000 / m_fractional_window;
-        } else if (m_cca_mode == cca_cubic) { // Cubic code is still unfinished. Don't use for now.
-            // Linux Cubic implementation includes further (1) check to stop
-            // increasing cwnd when it reaches last_Wmax in a short period,
-            // and (2) the boost for SS mode to make m_cubic_cnt >= 20
-            // We skip those for now...
-            time_tp now = Now();
-            if (m_cubic_epoch_start == 0) {
-                m_cubic_epoch_start = now;
-                if (m_cubic_last_max_fracwin <= m_fractional_window) {
-                    m_cubic_K = 0;
-                    m_cubic_origin_fracwin = m_fractional_window;
-                } else {
-                    m_cubic_K = CubicRoot(((m_cubic_last_max_fracwin - m_fractional_window) * RTT_SCALED / m_packet_size / C_SCALED));
-                    m_cubic_origin_fracwin = m_cubic_last_max_fracwin;
-                }
-                //printf("K: %u, last_max: %lu, frac_win: %lu\n", m_cubic_K, m_cubic_last_max_fracwin, m_fractional_window);
-            }
-            uint32_t t = ((time_tp)(now - m_cubic_epoch_start + m_rtt_min) / TIME_SCALE);                            // t = (now - start + RTT)
-            uint64_t offs = (t < m_cubic_K) ? (m_cubic_K - t) : (t - m_cubic_K);                                     // t - K
-            uint64_t delta = (C_SCALED * offs * offs * offs) * m_packet_size / RTT_SCALED;                           // mtu*c/rtt*(t-K)^3
-            uint64_t target = (t < m_cubic_K) ? (m_cubic_origin_fracwin - delta) : (m_cubic_origin_fracwin + delta); // mtu*c/rtt*(t-K)^3 + W_max
-            uint64_t count = (target > m_fractional_window) ? (target - m_fractional_window) : (1);
-            //printf("time: %d, K: %u, offs: %lu, delta: %lu/%lu, pkt: %lu, rtt_min: %d, RTT_SCALED: %lu, count: %lu, target: %lu, fw: %lu\n", t, m_cubic_K, offs, (C_SCALED * offs * offs * offs) * m_packet_size, delta, m_packet_size, m_rtt_min, RTT_SCALED, count, target, m_fractional_window);
-            m_fractional_window += acks * m_max_packet_size * srtt * 1000000 / m_vrtt * srtt / m_vrtt * count / m_fractional_window;
         } else {
             uint64_t divisor = mul_64_64_shift(m_packet_size, 1000000);
             uint64_t invscaler = div_64_64_round(mul_64_64_shift(m_pacing_rate, m_vrtt), divisor);
@@ -461,13 +349,13 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     // Reduce the window if the CE count is increased, and if not in-loss and not in-cwr
     if ((m_cc_state == cs_cong_avoid) && (m_packets_CE - packets_CE < 0)) {
         m_rtts_to_growth = m_pacing_rate / RATE_STEP + MIN_STEP; // first reset the growth waiting time
-        if (m_cca_mode == cca_cubic)
-            m_cca_mode = cca_prague_win; // use Prague in case of marks
+
         if (m_cca_mode == cca_prague_win) {
             m_fractional_window -= m_fractional_window * m_alpha >> (PROB_SHIFT + 1);   // reduce the window by a factor alpha/2
         } else {
             m_pacing_rate -= m_pacing_rate * m_alpha >> (PROB_SHIFT + 1);   // reduce the rate by a factor alpha/2
         }
+
         m_cc_state = cs_in_cwr;                  // set the loss state to avoid multiple reductions per RTT
         m_cwr_packets_sent = packets_sent;       // set when to end in_loss state
         m_cwr_ts = ts;                           // set the cwr timestampt to check if a virtRtt is passed
@@ -486,15 +374,11 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
         m_fractional_window = 1;
 
     //determine packet size
-    size_tp old_packet_size = m_packet_size;
     m_packet_size = m_pacing_rate * m_vrtt / 1000000 / MIN_PKT_WIN;            // B/p = B/s * 25ms/burst / 2p/burst
     if (m_packet_size < PRAGUE_MINMTU)
         m_packet_size = PRAGUE_MINMTU;
     if (m_packet_size > m_max_packet_size)
         m_packet_size = m_max_packet_size;
-    if (m_packet_size != old_packet_size) {
-        m_cubic_K = m_cubic_K * CubicRoot(old_packet_size) / CubicRoot(m_packet_size);
-    }
 
     // packet burst
     m_packet_burst = count_tp(m_pacing_rate * BURST_TIME / 1000000 / m_packet_size);  // p = B/s * 250µs / B/p
