@@ -18,7 +18,7 @@ enum cs_tp {cs_init, cs_cong_avoid, cs_in_loss, cs_in_cwr};
 enum cca_tp {cca_prague_win, cca_prague_rate};  // which CC algorithm is active
 
 static const count_tp PRAGUE_INITWIN  = 10;          // Prague initial window size
-static const size_tp  PRAGUE_MINMTU   = 150;         // Prague minmum MTU suze
+static const size_tp  PRAGUE_MINMTU   = 150;         // Prague minmum MTU size
 static const size_tp  PRAGUE_INITMTU  = 1400;        // Prague initial MTU size
 static const rate_tp  PRAGUE_INITRATE = 12500;       // Prague initial rate 12500 Byte/s (equiv. 100kbps)
 static const rate_tp  PRAGUE_MINRATE  = 12500;       // Prague minimum rate 12500 Byte/s (equiv. 100kbps)
