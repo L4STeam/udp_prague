@@ -109,9 +109,9 @@ function udpprague_p.dissector(buffer, pinfo, tree)
 			length = payload_len
 			local subtree = tree:add(udpprague_p, buffer(offset, length), "UDP Prague Protocol")
 			subtree:add(f.type,        buffer(offset, 1)); offset = offset + 1
+			subtree:add(f.ack_seq,     buffer(offset, 4)); offset = offset + 4
 			subtree:add(f.timestamp,   buffer(offset, 4)); offset = offset + 4
 			subtree:add(f.echoed_ts,   buffer(offset, 4)); offset = offset + 4
-			subtree:add(f.ack_seq,     buffer(offset, 4)); offset = offset + 4
 			subtree:add(f.pkt_rcvd,    buffer(offset, 4)); offset = offset + 4
 			subtree:add(f.pkt_ce,      buffer(offset, 4)); offset = offset + 4
 			subtree:add(f.pkt_lost,    buffer(offset, 4)); offset = offset + 4
