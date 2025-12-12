@@ -1,7 +1,30 @@
 -- udpprague.lua
 
 -- Port to which we attach the dissector (Change to your port, 8080 is the default in app_stuff.h)
-local UDPPRAGUE_PORT = 8080
+-- You can pass port like this: 
+--			tshark -X lua_script:udp_prague_dissector.lua -X lua_script1:udp_prague_port=1234
+-- Defaults
+local DEFAULT_PORT = 8080
+local UDP_PRAGUE_PORT = DEFAULT_PORT
+
+local args = {...}
+
+-- Try to detect `udp_prague_port=1234` in the varargs
+local function pick_udp_port(argv)
+    for _, item in ipairs(argv or {}) do
+        local key, val = item:match("^%s*([Uu][Dd][Pp]_%s*[Pp][Rr][Aa][Gg][Uu][Ee]_%s*[Pp][Oo][Rr][Tt])%s*=%s*(%d+)%s*$")
+        if key and val then
+            return tonumber(val)
+        end
+    end
+    return nil
+end
+
+local parsed_port = pick_udp_port(args)
+
+if parsed_port then
+    UDP_PRAGUE_PORT = parsed_port
+end
 
 -- Plugin info
 local udpprague_info =
@@ -109,9 +132,9 @@ function udpprague_p.dissector(buffer, pinfo, tree)
 			length = payload_len
 			local subtree = tree:add(udpprague_p, buffer(offset, length), "UDP Prague Protocol")
 			subtree:add(f.type,        buffer(offset, 1)); offset = offset + 1
+			subtree:add(f.ack_seq,     buffer(offset, 4)); offset = offset + 4
 			subtree:add(f.timestamp,   buffer(offset, 4)); offset = offset + 4
 			subtree:add(f.echoed_ts,   buffer(offset, 4)); offset = offset + 4
-			subtree:add(f.ack_seq,     buffer(offset, 4)); offset = offset + 4
 			subtree:add(f.pkt_rcvd,    buffer(offset, 4)); offset = offset + 4
 			subtree:add(f.pkt_ce,      buffer(offset, 4)); offset = offset + 4
 			subtree:add(f.pkt_lost,    buffer(offset, 4)); offset = offset + 4
