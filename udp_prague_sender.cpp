@@ -112,14 +112,14 @@ int main(int argc, char **argv)
                     startSend = now;
                 data_msg.seq_nr = ++seqnr;
                 app.LogSendData(now, data_msg.timestamp, data_msg.echoed_timestamp, seqnr, packet_size,
-                    pacing_rate, packet_window, packet_burst, inflight, inburst, nextSend);
+                    pacing_rate, packet_window, packet_burst, inflight + inburst, inburst, nextSend);
                 data_msg.hton();
                 app.ExitIf(us.Send((char*)(&data_msg), packet_size, new_ecn) != packet_size, "invalid data packet length sent");
                 sendtime[seqnr % PKT_BUFFER_SIZE] = startSend;
                 pkts_stat[seqnr % PKT_BUFFER_SIZE] = snd_sent;
                 inburst++;
-                inflight++;
             }
+            inflight += inburst;
             if (startSend != 0) {
                 if (compRecv + packet_size * inburst * 1000000 / pacing_rate <= 0)
                     nextSend = time_tp(startSend + 1);
@@ -144,8 +144,6 @@ int main(int argc, char **argv)
 
                 // Get extra frame info from Prague CC and update frame sender info
                 pragueCC.GetCCInfoVideo(pacing_rate, frame_size, frame_window, packet_burst, packet_size);
-                //printf("[FRAME %d] now: %d, inflight: %d(%d/%d/%d/%d), frame_size: %ld, frame_window: %d, packet_size: %ld, pacing_rate: %ld\n",
-                //    frame_nr, now, frame_inflight, is_sending, sent_frame, lost_frame, recv_frame, frame_size, frame_window, packet_size, pacing_rate);
             }
             while ((frame_inflight <= frame_window) && (frame_sent < frame_size) && (inburst < packet_burst) && (nextSend - now <= 0)) {
                 pragueCC.GetTimeInfo(frame_msg.timestamp, frame_msg.echoed_timestamp, new_ecn);

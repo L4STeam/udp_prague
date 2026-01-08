@@ -164,7 +164,7 @@ PragueCC::PragueCC(
     // state updated for the actual congestion control variables
     m_cc_state = cs_init;
     m_cca_mode = cca_prague_win;
-    m_rtts_to_growth= init_rate >> RATE_SHIFT + MIN_STEP;   // virtual rtts before going into growth mode
+    m_rtts_to_growth= (init_rate >> RATE_SHIFT) + MIN_STEP;   // virtual rtts before going into growth mode
     m_alpha = 0;
     m_pacing_rate = init_rate;
     m_fractional_window = m_init_window;
@@ -366,7 +366,7 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
 
     // Reduce the window if the CE count is increased, and if not in-loss and not in-cwr
     if ((m_cc_state == cs_cong_avoid) && (m_packets_CE - packets_CE < 0)) {
-        m_rtts_to_growth = m_pacing_rate >> RATE_SHIFT + MIN_STEP; // first reset the growth waiting time
+        m_rtts_to_growth = (m_pacing_rate >> RATE_SHIFT) + MIN_STEP; // first reset the growth waiting time
 
         if (m_cca_mode == cca_prague_win) {
             m_fractional_window -= m_fractional_window * m_alpha >> (PROB_SHIFT + 1);   // reduce the window by a factor alpha/2
@@ -490,7 +490,7 @@ void PragueCC::ResetCCInfo()     // call this when there is a RTO detected
     m_packet_burst = MIN_PKT_BURST;
     m_packet_size = m_max_packet_size;
     m_packet_window = MIN_PKT_WIN;
-    m_rtts_to_growth = m_pacing_rate >> RATE_SHIFT + MIN_STEP;   // virtual rtts before going into growth mode
+    m_rtts_to_growth = (m_pacing_rate >> RATE_SHIFT) + MIN_STEP;   // virtual rtts before going into growth mode
     m_lost_rtts_to_growth = 0;
 }
 
