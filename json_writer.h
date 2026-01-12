@@ -1,314 +1,84 @@
 #ifndef JSON_WRITER_H
 #define JSON_WRITER_H
 
-// json_writer.h:
-// Write string and number to json and dump file
-//
-
-// Below are only been tested in Linux
-#include <unistd.h>
-#include <sys/file.h>
-
+#include <cstdint>
+#include <fstream>
 #include <string>
-#define INIT_CAPACITY 128
 
+// Simple JSON lines file writer
 struct json_writer {
+  std::string buf;
+  std::string file;
+  bool first = true;
 
-    char *buffer;       // json writer buffer
-    size_t capacity;    // Current capacity (0 if error)
-    size_t length;      // Curretn length
-    bool add_comma;     // Add comma at the begining of the NEXT entry
-    char *file_name;
-    bool file_append;
+  int init(const char *filename, bool append = true) {
+    if (!filename || !*filename)
+      return -1;
+    file = filename;
+    if (!append)
+      std::ofstream(file, std::ios::trunc).close();
+    return 0;
+  }
 
-    void clean() {
-        if (!buffer)
-            free(buffer);
-        buffer = NULL;
-        capacity = 0;
-        length = 0;
-        if (!file_name)
-            free(file_name);
-    }
+  void reset() {
+    buf.clear();
+    buf.push_back('{');
+    first = true;
+  }
 
-    int reset() {
-        if (!buffer)
-            free(buffer);
-        buffer = (char *)malloc(INIT_CAPACITY);
-        if (!buffer) {
-            perror("Failed to allocate memory for JSON writer.\n");
-            clean();
-            return -1; 
-        }
-        capacity = INIT_CAPACITY;
-        buffer[0] = '{';
-        length = 1;
-        add_comma = false;
-        return 0;
-    }
+  void sep() {
+    if (!first)
+      buf.push_back(',');
+    first = false;
+  }
 
-    int remove_file_if_exists(const char *filename) {
-        // Return 0 if file does not exis or file can be removed
-        if (access(filename, F_OK) != 0 ||
-            remove(filename) == 0)
-                return 0;
-        return -1;
-    }
+  /* Field functions */
+  void field(const char *k, const std::string &v) {
+    sep();
+    buf += "\"";
+    buf += k;
+    buf += "\":\"";
+    buf += v;
+    buf += "\"";
+  }
 
-    int init(const char *filename, bool append_file = true) {
-        if (!filename || remove_file_if_exists(filename) != 0)
-            return -1;
+  void field(const char *k, uint64_t v) {
+    sep();
+    buf += "\"";
+    buf += k;
+    buf += "\":\"";
+    buf += std::to_string(v);
+    buf += "\"";
+  }
 
-        file_append = append_file;
-        file_name = (char *)malloc(strlen(filename) + 1);
-        if (!file_name) {
-            perror("Faile to allocate memory for file writer");
-            return -1;
-        }
-        strcpy(file_name, filename);
-        return reset();
-    }
+  void field(const char *k, int32_t v) {
+    sep();
+    buf += "\"";
+    buf += k;
+    buf += "\":\"";
+    buf += std::to_string(v);
+    buf += "\"";
+  }
 
-    int check_capacity(const size_t req_len) {
-        if (!capacity)
-            return -1;
-        if (length + req_len >= capacity) {
-            size_t new_capacity = (length + req_len + 1 > 2*capacity) ? (length + req_len + 1) : 2*capacity;
-            char * new_buffer = (char *)realloc(buffer, new_capacity);
+  void field(const char *k, float v) {
+    sep();
+    buf += "\"";
+    buf += k;
+    buf += "\":\"";
+    buf += std::to_string(v);
+    buf += "\"";
+  }
 
-            if (!new_buffer) {
-                perror("Failed to allocate new-memory for JSON writer.\n");
-                clean();
-                return -1;
-            }
-            buffer = new_buffer;
-            capacity = new_capacity;
-        }
-        return 0;
-    }
+  /* Finalize I/O */
+  void finalize() { buf.push_back('}'); }
 
-    int append(const char *text) {
-        size_t text_len = strlen(text);
-
-        if (!text)
-            return -1;
-        if (check_capacity(text_len) != 0)
-            return -1;
-        memcpy(buffer + length, text, text_len);
-        length += text_len;
-        return 0;
-    }
-    
-    int add_comma_if_needed() {
-        if (add_comma)
-            return append(",");
-        add_comma = true;
-        return 0;
-    }
-
-    int add_format_string(const char *key, const char *value, const char *format = "%s") {
-        char temp[2*INIT_CAPACITY];
-        char formatted[INIT_CAPACITY];
-
-        if (!key || !value || !format) {
-            perror("Skip adding empty key/string into JSON writer.\n");
-            return -1;
-        }
-        if (add_comma_if_needed() != 0)
-            return -1;
-        snprintf(formatted, sizeof(formatted), format, value);
-        snprintf(temp, sizeof(temp), "\"%s\":\"%s\"", key, formatted);
-        return append(temp);
-    }
-
-    int add_format_uint64(const char *key, const uint64_t value, const char *format = "%llu") {
-        char temp[2*INIT_CAPACITY];
-        char formatted[INIT_CAPACITY];
-
-        if (!key || !format) {
-            perror("Skip adding empty key/uint64 into JSON writer.\n");
-            return -1;
-        }
-        if (add_comma_if_needed() != 0)
-            return -1;
-        snprintf(formatted, sizeof(formatted), format, value);
-        snprintf(temp, sizeof(temp), "\"%s\":\"%s\"", key, formatted);
-        return append(temp);
-    }
-
-    int add_format_uint32(const char *key, const uint32_t value, const char *format = "%u") {
-        char temp[2*INIT_CAPACITY];
-        char formatted[INIT_CAPACITY];
-
-        if (!key || !format) {
-            perror("Skip adding empty key/uint32 into JSON writer.\n");
-            return -1; 
-        }
-        if (add_comma_if_needed() != 0)
-            return -1; 
-        snprintf(formatted, sizeof(formatted), format, value);
-        snprintf(temp, sizeof(temp), "\"%s\":\"%s\"", key, formatted);
-        return append(temp);
-    }
-
-    int add_format_int32(const char *key, const int32_t value, const char *format = "%d") {
-        char temp[2*INIT_CAPACITY];
-        char formatted[INIT_CAPACITY];
-
-        if (!key || !format) {
-            perror("Skip adding empty key/int32 into JSON writer.\n");
-            return -1;
-        }
-        if (add_comma_if_needed() != 0)
-            return -1;
-        snprintf(formatted, sizeof(formatted), format, value);
-        snprintf(temp, sizeof(temp), "\"%s\":\"%s\"", key, formatted);
-        return append(temp);
-    }
-
-    int add_format_float(const char *key, const float value, const char *format = "%f") {
-        char temp[2*INIT_CAPACITY];
-        char formatted[INIT_CAPACITY];
-
-        if (!key || !format) {
-            perror("Skip adding empty key/float into JSON writer.\n");
-            return -1;
-        }
-        if (add_comma_if_needed() != 0)
-            return -1;
-        snprintf(formatted, sizeof(formatted), format, value);
-        snprintf(temp, sizeof(temp), "\"%s\":\"%s\"", key, formatted);
-        return append(temp);
-    }
-
-    int begin_array(const char *key) {
-        char temp[INIT_CAPACITY];
-
-        if (!key) {
-            perror("Skip adding empty array into JSON writer.\n");
-            return -1;
-        }
-        if (add_comma_if_needed() != 0)
-            return -1;
-        snprintf(temp, sizeof(temp), "\"%s\":[", key);
-        if (append(temp) != 0)
-            return -1;
-        add_comma = false;
-        return 0;
-    }
-    
-    int add_array_string(const char *value, const char *format = "%s") {
-        char temp[INIT_CAPACITY];
-
-        if (!value || !format) {
-            perror("Skip adding empty string element into JSON writer.\n");
-            return -1;
-        }
-        if (add_comma_if_needed() != 0)
-            return -1;
-        snprintf(temp, sizeof(temp), format, value);
-        return append(temp);
-    }
-
-    int add_array_uint64(const uint64_t value, const char *format = "%llu") {
-        char temp[INIT_CAPACITY];
-
-        if (!format) {
-            perror("Skip adding empty uint64 element into JSON writer.\n");
-            return -1;
-        }
-        if (add_comma_if_needed() != 0)
-            return -1;
-        snprintf(temp, sizeof(temp), format, value);
-        return append(temp);
-    }
-
-    int add_array_uint32(const uint32_t value, const char *format = "%u") {
-        char temp[INIT_CAPACITY];
-
-        if (!format) {
-            perror("Skip adding empty uint32 element into JSON writer.\n");
-            return -1;
-        }
-        if (add_comma_if_needed() != 0)
-            return -1;
-        snprintf(temp, sizeof(temp), format, value);
-        return append(temp);
-    }
-
-    int add_array_int32(const uint32_t value, const char *format = "%d") {
-        char temp[INIT_CAPACITY];
-
-        if (!format) {
-            perror("Skip adding empty int32 element into JSON writer.\n");
-            return -1;
-        }
-        if (add_comma_if_needed() != 0)
-            return -1;
-        snprintf(temp, sizeof(temp), format, value);
-        return append(temp);
-    }
-
-    int add_array_float(const float value, const char *format = "%f") {
-        char temp[INIT_CAPACITY];
-
-        if (!format) {
-            perror("Skip adding empty float element into JSON writer.\n");
-            return -1;
-        }
-        if (add_comma_if_needed() != 0)
-            return -1;
-        snprintf(temp, sizeof(temp), format, value);
-        return append(temp);
-    }
-
-    int end_array() {
-        if (append("]") != 0)
-            return -1;
-        add_comma = true;
-        return 0;
-    }
-
-    int finalize() {
-        if (check_capacity(2) != 0)
-            return -1;
-        buffer[length++] = '}';
-        buffer[length] = '\0';
-        return 0;
-    }
-
-    int dumpfile() {
-        FILE *file = NULL;
-        if (!file_name || !buffer)
-            return -1;
-        if (file_append)
-            file = fopen(file_name, "a");
-        else
-            file = fopen(file_name, "w");
-        if (!file) {
-            perror("Error opening file.\n");
-            return -1;
-        }
-
-        int fd = fileno(file);
-        if (flock(fd, LOCK_EX) == -1) {
-            perror("file can not be locked\n");
-            fclose(file);
-            return -1;
-        }
-        if (file_append)
-            fprintf(file, "%s\n", buffer);
-        else
-            fprintf(file, "%s", buffer);
-        fflush(file);
-        flock(fd, LOCK_UN);
-        fclose(file);
-        return 0;
-    }
-
-    ~json_writer() {
-        clean();
-    }
+  int dump() {
+    std::ofstream out(file, std::ios::app | std::ios::binary);
+    if (!out)
+      return -1;
+    out << buf << '\n';
+    return 0;
+  }
 };
 
-#endif // JSON_WRITER_H
+#endif //! JSON_WRITER_H

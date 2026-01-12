@@ -17,9 +17,9 @@ int main(int argc, char **argv)
     // Create a UDP socket
     UDPSocket us;
     if (app.connect)
-        us.Connect(app.rcv_addr, app.rcv_port);
+        us.Connect(app.rcv_addr, (uint16_t)app.rcv_port);
     else
-        us.Bind(app.rcv_addr, app.rcv_port);
+        us.Bind(app.rcv_addr, (uint16_t)app.rcv_port);
 
     char receivebuffer[BUFFER_SIZE];
     uint32_t sendbuffer[BUFFER_SIZE/4];

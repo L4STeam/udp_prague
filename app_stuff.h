@@ -55,7 +55,6 @@ struct AppStuff
     void ExitIf(bool stop, const char* reason)
     {
         if (stop) {
-            jw.clean();
             perror(reason);
             exit(1);
         }
@@ -329,30 +328,33 @@ struct AppStuff
                        pkt_inflight, pkt_window, pkt_inburst, pkt_burst);
             }
         } else {
-            if (jw.reset() == 0) {
-                jw.add_format_string("name", rept_name, "%s");
-                jw.add_format_uint64("time", std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count(), "%llu");
-                jw.add_format_int32("time_since_start", now, "%d");
-                jw.add_format_float("sent_rate", rate_sent, "%.3f");
-                jw.add_format_float("rcvd_rate", rate_rcvd, "%.3f");
-                jw.add_format_float("rtt", rtt, "%.3f");
-                jw.add_format_float("mark_prob", mark_prob, "%.2f%%");
-                jw.add_format_float("loss_prob", loss_prob, "%.2f%%");
-                jw.add_format_int32("pkt_rcvd", pkts_received - prev_pkts, "%d");
-                jw.add_format_int32("pkt_mark", pkts_CE - prev_marks, "%d");
-                jw.add_format_int32("pkt_lost", pkts_lost - prev_losts, "%d");
-                jw.add_format_float("pacing_rate", rate_pacing, "%.3f");
-                if (rt_mode) {
-                    jw.add_format_int32("frame_inflight", frm_inflight, "%d");
-                    jw.add_format_int32("frame_window", frm_window, "%d");
-                }
-                jw.add_format_int32("pkt_inflight", pkt_inflight, "%d");
-                jw.add_format_int32("pkt_window", pkt_window, "%d");
-                jw.add_format_int32("pkt_inburst", pkt_inburst, "%d");
-                jw.add_format_int32("pkt_burst", pkt_burst, "%d");
-                jw.finalize();
-                jw.dumpfile();
+            jw.reset();
+            jw.reset();
+            jw.field("name", rept_name);
+            jw.field("time",
+                    uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(
+                                  std::chrono::system_clock::now().time_since_epoch())
+                                  .count()));
+            jw.field("time_since_start", now);
+            jw.field("sent_rate", rate_sent);
+            jw.field("rcvd_rate", rate_rcvd);
+            jw.field("rtt", rtt);
+            jw.field("mark_prob", mark_prob);
+            jw.field("loss_prob", loss_prob);
+            jw.field("pkt_rcvd", pkts_received - prev_pkts);
+            jw.field("pkt_mark", pkts_CE - prev_marks);
+            jw.field("pkt_lost", pkts_lost - prev_losts);
+            jw.field("pacing_rate", rate_pacing);
+            if (rt_mode) {
+              jw.field("frame_inflight", frm_inflight);
+              jw.field("frame_window", frm_window);
             }
+            jw.field("pkt_inflight", pkt_inflight);
+            jw.field("pkt_window", pkt_window);
+            jw.field("pkt_inburst", pkt_inburst);
+            jw.field("pkt_burst", pkt_burst);
+            jw.finalize();
+            jw.dump();
         }
         rept_tm = now + rept_int;
         acc_bytes_sent = 0;
@@ -439,22 +441,27 @@ struct AppStuff
                    (!rfc8888_ack) ? (pkts_received - prev_pkts) : prev_pkts, loss_prob,
                    (!rfc8888_ack) ? (pkts_lost - prev_losts) : prev_losts, (!rfc8888_ack) ? (pkts_received - prev_pkts) : prev_pkts);
         } else {
-            if (jw.reset() == 0) {
-                jw.add_format_string("name", rept_name, "%s");
-                jw.add_format_uint64("time", std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count(), "%llu");
-                jw.add_format_int32("time_since_start", now, "%d");
-                jw.add_format_float("rcvd_rate", rate_rcvd, "%.3f");
-                jw.add_format_float("sent_rate", rate_sent, "%.3f");
-                jw.add_format_float((!rfc8888_ack)? "RTT": "ATO", rtt, "%.3f");
-                jw.add_format_float("mark_prob", mark_prob, "%.2f%%");
-                jw.add_format_float("loss_prob", loss_prob, "%.2f%%");
-                jw.add_format_int32("pkt_rcvd", (!rfc8888_ack) ? (pkts_received - prev_pkts) : prev_pkts, "%d");
-                jw.add_format_int32("pkt_mark", (!rfc8888_ack) ? (pkts_CE - prev_marks) : prev_marks, "%d");
-                jw.add_format_int32("pkt_lost", (!rfc8888_ack) ? (pkts_lost - prev_losts) : prev_losts, "%d");
-                jw.finalize();
-                jw.dumpfile();
-            }
-        }
+              jw.reset();
+              jw.field("name", rept_name);
+              jw.field("time",
+                      uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(
+                                    std::chrono::system_clock::now().time_since_epoch())
+                                    .count()));
+              jw.field("time_since_start", now);
+              jw.field("rcvd_rate", rate_rcvd);
+              jw.field("sent_rate", rate_sent);
+              jw.field((!rfc8888_ack) ? "RTT" : "ATO", rtt);
+              jw.field("mark_prob", mark_prob);
+              jw.field("loss_prob", loss_prob);
+              jw.field("pkt_rcvd",
+                      (!rfc8888_ack) ? (pkts_received - prev_pkts) : prev_pkts);
+              jw.field("pkt_mark",
+                      (!rfc8888_ack) ? (pkts_CE - prev_marks) : prev_marks);
+              jw.field("pkt_lost",
+                      (!rfc8888_ack) ? (pkts_lost - prev_losts) : prev_losts);
+              jw.finalize();
+              jw.dump();
+      }
         rept_tm = now + rept_int;
         acc_bytes_rcvd = 0;
         acc_bytes_sent = 0;
