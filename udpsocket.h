@@ -3,9 +3,9 @@
 
 #ifdef _WIN32
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
-//#ifndef WIN32_LEAN_AND_MEAN
-//#define WIN32_LEAN_AND_MEAN
-//#endif
+// #ifndef WIN32_LEAN_AND_MEAN
+// #define WIN32_LEAN_AND_MEAN
+// #endif
 
 #include <winsock2.h>
 
@@ -14,25 +14,25 @@
 #include <ws2ipdef.h>
 #include <ws2tcpip.h>
 #elif __linux__
+#include <arpa/inet.h>
+#include <netinet/ip.h>
 #include <sched.h>
 #include <string.h>
 #include <unistd.h>
-#include <arpa/inet.h>
-#include <netinet/ip.h>
 #elif __FreeBSD__
-#include <unistd.h>
-#include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
 #elif __APPLE__
-#include <unistd.h>
-#include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
 #endif
 #ifdef __MUSL__
-#include <sys/time.h>
 #include <pthread.h>
+#include <sys/time.h>
 #endif
 #include "prague_cc.h"
 
@@ -58,22 +58,23 @@ using SocketHandle =
     int;
 #endif
 
-
 class UDPSocket {
 public:
-    UDPSocket();
-    ~UDPSocket();
+  UDPSocket();
+  ~UDPSocket();
 
-    void Bind(const char* addr, uint16_t port);
-    void Connect(const char* addr, uint16_t port);
+  void Bind(const char *addr, uint16_t port);
+  void Connect(const char *addr, uint16_t port);
 
-    size_tp Receive(char *buf, size_tp len, ecn_tp &ecn, time_tp timeout);
-    size_tp Send(char *buf, size_tp len, ecn_tp ecn);
+  size_tp Receive(char *buf, size_tp len, ecn_tp &ecn, time_tp timeout);
+  size_tp Send(char *buf, size_tp len, ecn_tp ecn);
+
 private:
-    void init_io();
+  void init_io();
+
 private:
 #ifdef _WIN32
-  WSADATA wsaData;                   // Winsock state data
+  WSADATA wsaData;            // Winsock state data
   LPFN_WSARECVMSG WSARecvMsg; // Pointer to WSARecvMsg extension function
   LPFN_WSASENDMSG WSASendMsg; // Pointer to WSASendMsg extension function
 
@@ -95,9 +96,9 @@ private:
   iovec recv_iov{};
   alignas(cmsghdr) char recv_ctrl[CMSG_SPACE(sizeof(int))];
 #endif
-    Endpoint peer{};
-    SocketHandle socket;
+  SocketHandle socket;
+  Endpoint peer;
 
-    bool connected;
+  bool connected;
 };
-#endif //UDPSOCKET_H
+#endif // UDPSOCKET_H

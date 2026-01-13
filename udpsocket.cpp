@@ -1,7 +1,27 @@
 #include "udpsocket.h"
 #include <cassert>
+#include <cstring>
 #include <system_error>
 
+#ifndef _WIN32
+constexpr int SOCKET_ERROR = -1;
+#define ECN_MASK ecn_ce
+#endif
+
+/*
+ * On Linux, ECN is delivered via IP_TOS / IPV6_TCLASS control messages.
+ * On macOS, the same information uses IP_RECVTOS / IPV6_RECVTCLASS.
+ * We normalize this difference with these macros.
+ */
+#ifdef __linux__
+#define IP_RECV_CMSG_TYPE IP_TOS
+#define IPV6_RECV_CMSG_TYPE IPV6_TCLASS
+#elif __APPLE__
+#define IP_RECV_CMSG_TYPE IP_RECVTOS
+#define IPV6_RECV_CMSG_TYPE IPV6_RECVTCLASS
+#endif
+
+// Return an invalid socket handle for the current platform
 SocketHandle invalid_socket() {
 #ifdef _WIN32
   return INVALID_SOCKET;
@@ -151,7 +171,6 @@ Endpoint resolve_endpoint(const char *addr, uint16_t port) {
   throw std::system_error(EAFNOSUPPORT, std::system_category(),
                           "Unsupported address type");
 }
-
 
 #ifdef _WIN32
 bool parse_ecn_cmsg(PCMSGHDR c, ecn_tp &ecn) {
@@ -345,6 +364,10 @@ void UDPSocket::Bind(const char *addr, uint16_t port) {
   socket = make_socket(ep.sa.ss_family);
   init_io();
   enable_recv_ecn(socket, ep.sa.ss_family);
+
+  if (::bind(socket, reinterpret_cast<const sockaddr *>(&ep.sa), ep.len) ==
+      SOCKET_ERROR)
+    throw std::system_error(last_error_code(), std::system_category(), "bind");
 }
 void UDPSocket::Connect(const char *addr, uint16_t port) {
   assert(addr != nullptr);
@@ -370,10 +393,10 @@ void UDPSocket::Connect(const char *addr, uint16_t port) {
   sendMsg.name = nullptr;
   sendMsg.namelen = 0;
 #else
-  recv_msg.msg_name = nullptr;
-  recv_msg.msg_namelen = 0;
   send_msg.msg_name = nullptr;
   send_msg.msg_namelen = 0;
+  recv_msg.msg_name = nullptr;
+  recv_msg.msg_namelen = 0;
 #endif
 }
 
@@ -427,7 +450,7 @@ size_tp UDPSocket::Receive(char *buf, size_tp len, ecn_tp &ecn,
     recv_msg.msg_namelen = sizeof(peer.sa);
   }
 
-  if ((r = recvmsg(sock, &recv_msg, 0)) < 0)
+  if ((r = recvmsg(socket, &recv_msg, 0)) < 0)
     throw std::system_error(last_error_code(), std::system_category(),
                             "Fail to recv UDP message from socket");
 
@@ -494,7 +517,7 @@ size_tp UDPSocket::Send(char *buf, size_tp len, ecn_tp ecn) {
   cmsghdr *cmsg = CMSG_FIRSTHDR(&send_msg);
   fill_ecn_cmsg(cmsg, peer.family(), ecn);
 
-  ssize_t rc = sendmsg(sock, &send_msg, 0);
+  ssize_t rc = sendmsg(socket, &send_msg, 0);
 
   if (rc < 0)
     throw std::system_error(errno, std::system_category(), "sendmsg");
