@@ -329,7 +329,6 @@ struct AppStuff
             }
         } else {
             jw.reset();
-            jw.reset();
             jw.field("name", rept_name);
             jw.field("time",
                     uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(
