@@ -58,7 +58,7 @@ uint64_t div_64_64_round(uint64_t a, uint64_t divisor)
 }
 
 // Prague consts and methods
-const rate_tp MIN_STEP = 7;                // Minimally wait for 7 RTTs to try to increase faster
+const count_tp MIN_STEP = 7;               // Minimally wait for 7 RTTs to try to increase faster
 const rate_tp RATE_STEP = 1920000;         // per 1920kB/s = 15360kbps pacing rate wait one RTT longer
 const time_tp QUEUE_GROWTH = 1000;         // target a queue growth of 1000us = 1ms after waiting pacing_rate / RATE_STEP + MIN_STEP
 const time_tp BURST_TIME = 250;            // 250us
