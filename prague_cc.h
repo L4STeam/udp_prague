@@ -92,7 +92,7 @@ public:
         rate_tp min_rate = PRAGUE_MINRATE,
         rate_tp max_rate = PRAGUE_MAXRATE);
 
-    ~PragueCC();
+    virtual ~PragueCC();
 
     virtual time_tp Now();     // Can be overwritten (e.g. for simulators),
                                // needs a monotonic increasing signed int 32 which wraps around (after exactly 4294.967296 seconds)
