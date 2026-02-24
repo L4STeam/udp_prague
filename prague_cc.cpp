@@ -59,8 +59,8 @@ uint64_t div_64_64_round(uint64_t a, uint64_t divisor)
 
 // Prague consts and methods
 const count_tp MIN_STEP = 7;               // Minimally wait for 7 RTTs to try to increase faster
-const rate_tp RATE_STEP = 1920000;         // per 1920kB/s = 15360kbps pacing rate wait one RTT longer
-const time_tp QUEUE_GROWTH = 1000;         // target a queue growth of 1000us = 1ms after waiting pacing_rate / RATE_STEP + MIN_STEP
+const rate_tp RATE_SHIFT = 21;             // per 1920kB/s = 15360kbps pacing rate wait one RTT longer, but leave a bit more slack: 2097152 B/s is >>21
+const time_tp QUEUE_GROWTH = 1000;         // target a queue growth of 1000us = 1ms after waiting pacing_rate >> RATE_SHIFT + MIN_STEP
 const time_tp BURST_TIME = 250;            // 250us
 const time_tp REF_RTT = 25000;             // 25ms
 const uint8_t PROB_SHIFT = 20;             // enough as max value that can control up to 100Gbps with r [Mbps] = 1/p - 1, p = 1/(r + 1) = 1/100001
@@ -163,7 +163,7 @@ PragueCC::PragueCC(
     // state updated for the actual congestion control variables
     m_cc_state = cs_init;
     m_cca_mode = cca_prague_win;
-    m_rtts_to_growth= init_rate / RATE_STEP + MIN_STEP;   // virtual rtts before going into growth mode
+    m_rtts_to_growth= init_rate >> RATE_SHIFT + MIN_STEP;   // virtual rtts before going into growth mode
     m_alpha = 0;
     m_pacing_rate = init_rate;
     m_fractional_window = m_init_window;
@@ -243,7 +243,8 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
 
     // select the rate- or window-based update, but keep the rate stable on switching
     // below the pacing interval or 2ms the RTT is too unstable to calculate a rate. Also no queue can be identified reliably.
-    if ((srtt <= 2000) || (srtt <= pacing_interval)) {
+    // but only use rate-based update if we saw resent marks or drops
+    if (m_rtts_to_growth && ((srtt <= 2000) || (srtt <= pacing_interval))) {
         // keep rate stable when large dip in srtt
         m_cca_mode = cca_prague_rate;
     }
@@ -364,7 +365,7 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
 
     // Reduce the window if the CE count is increased, and if not in-loss and not in-cwr
     if ((m_cc_state == cs_cong_avoid) && (m_packets_CE - packets_CE < 0)) {
-        m_rtts_to_growth = m_pacing_rate / RATE_STEP + MIN_STEP; // first reset the growth waiting time
+        m_rtts_to_growth = m_pacing_rate >> RATE_SHIFT + MIN_STEP; // first reset the growth waiting time
 
         if (m_cca_mode == cca_prague_win) {
             m_fractional_window -= m_fractional_window * m_alpha >> (PROB_SHIFT + 1);   // reduce the window by a factor alpha/2
@@ -382,10 +383,17 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     if (m_cca_mode != cca_prague_rate)
         m_pacing_rate = m_fractional_window / srtt;   // in B/s
     if (m_pacing_rate < m_min_rate)
+    {
         m_pacing_rate = m_min_rate;
+        m_fractional_window = m_pacing_rate * srtt;   // in uB; make sure it is updated
+    }
     if (m_pacing_rate > m_max_rate)
+    {
         m_pacing_rate = m_max_rate;
-    m_fractional_window = m_pacing_rate * srtt;       // in uB
+        m_fractional_window = m_pacing_rate * srtt;   // in uB; make sure it is updated
+    }
+    if (m_cca_mode == cca_prague_rate)
+        m_fractional_window = m_pacing_rate * srtt;   // in uB; only update if in rate mode, otherwise loss of precision
     if (m_fractional_window == 0)
         m_fractional_window = 1;
 
@@ -480,7 +488,7 @@ void PragueCC::ResetCCInfo()     // call this when there is a RTO detected
     m_packet_burst = MIN_PKT_BURST;
     m_packet_size = m_max_packet_size;
     m_packet_window = MIN_PKT_WIN;
-    m_rtts_to_growth = m_pacing_rate / RATE_STEP + MIN_STEP;   // virtual rtts before going into growth mode
+    m_rtts_to_growth = m_pacing_rate >> RATE_SHIFT + MIN_STEP;   // virtual rtts before going into growth mode
     m_lost_rtts_to_growth = 0;
 }
 
