@@ -68,6 +68,7 @@ const prob_tp MAX_PROB = 1 << PROB_SHIFT;  // with r [Mbps] = 1/p - 1 = 2^20 Mbp
 const uint8_t ALPHA_SHIFT = 4;             // >> 4 is divide by 16
 const count_tp MIN_PKT_BURST = 1;          // 1 packet
 const count_tp MIN_PKT_WIN = 2;            // 2 packets
+const rate_tp MIN_PACKET_RATE = 80;        // 2 packets per 25ms = the minimum packet rate to maintain by reducing the packet sizes
 const uint8_t RATE_OFFSET = 3;             // +3% and -3% for non-RTmode transfer during 1st and 2nd halve vrtt
 const count_tp MIN_FRAME_WIN = 2;          // 2 frames
 
@@ -398,7 +399,8 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
         m_fractional_window = 1;
 
     //determine packet size
-    m_packet_size = m_pacing_rate * m_vrtt / 1000000 / MIN_PKT_WIN;            // B/p = B/s * 25ms/burst / 2p/burst
+    // m_packet_size = m_pacing_rate * m_vrtt / 1000000 / MIN_PKT_WIN;            // B/p = B/s * 25ms/burst / 2p/burst
+    m_packet_size = m_pacing_rate / MIN_PACKET_RATE;
     if (m_packet_size < PRAGUE_MINMTU)
         m_packet_size = PRAGUE_MINMTU;
     if (m_packet_size > m_max_packet_size)
