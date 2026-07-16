@@ -106,20 +106,23 @@ int main(int argc, char **argv)
         now = pragueCC.Now();
         if (!app.rt_mode) {
             // if the window and pacing interval allows, send the next burst
-            while ((inflight < packet_window) && (inburst < packet_burst) && (nextSend - now <= 0)) {
-                pragueCC.GetTimeInfo(data_msg.timestamp, data_msg.echoed_timestamp, new_ecn);
-                if (!startSend)
-                    startSend = now;
-                data_msg.seq_nr = ++seqnr;
-                app.LogSendData(now, data_msg.timestamp, data_msg.echoed_timestamp, seqnr, packet_size,
-                    pacing_rate, packet_window, packet_burst, inflight + inburst, inburst, nextSend);
-                data_msg.hton();
-                app.ExitIf(us.Send((char*)(&data_msg), packet_size, new_ecn) != packet_size, "invalid data packet length sent");
-                sendtime[seqnr % PKT_BUFFER_SIZE] = startSend;
-                pkts_stat[seqnr % PKT_BUFFER_SIZE] = snd_sent;
-                inburst++;
-            }
-            inflight += inburst;
+	    if ((inflight < packet_burst) && (nextSend - now <= 0)) {
+	        // we always complete the full burst
+                while (inburst < packet_burst) {
+                    pragueCC.GetTimeInfo(data_msg.timestamp, data_msg.echoed_timestamp, new_ecn);
+                    if (!startSend)
+                        startSend = now;
+                    data_msg.seq_nr = ++seqnr;
+                    app.LogSendData(now, data_msg.timestamp, data_msg.echoed_timestamp, seqnr, packet_size,
+                        pacing_rate, packet_window, packet_burst, inflight, inburst, nextSend);
+                    data_msg.hton();
+                    app.ExitIf(us.Send((char*)(&data_msg), packet_size, new_ecn) != packet_size, "invalid data packet length sent");
+                    sendtime[seqnr % PKT_BUFFER_SIZE] = startSend;
+                    pkts_stat[seqnr % PKT_BUFFER_SIZE] = snd_sent;
+                    inburst++;
+                    inflight++;
+                }
+	    }
             if (startSend != 0) {
                 if (compRecv + packet_size * inburst * 1000000 / pacing_rate <= 0)
                     nextSend = time_tp(startSend + 1);
