@@ -105,8 +105,9 @@ int main(int argc, char **argv)
         time_tp startSend = 0;  // next time to send
         now = pragueCC.Now();
         if (!app.rt_mode) {
-            // if the window and pacing interval allows, send the next burst
-	        while ((inflight < packet_window) && (nextSend - now <= 0)) {
+            // if the window and pacing interval allows, send the next burst.
+			// Send a single burst here and then receive ACKs with a timeout until nextSend.
+	        if ((inflight < packet_window) && (nextSend - now <= 0)) {
 	            // we always complete the full burst
                 while (inburst < packet_burst) {
                     pragueCC.GetTimeInfo(data_msg.timestamp, data_msg.echoed_timestamp, new_ecn);
