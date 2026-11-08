@@ -106,8 +106,8 @@ int main(int argc, char **argv)
         now = pragueCC.Now();
         if (!app.rt_mode) {
             // if the window and pacing interval allows, send the next burst
-	    if ((inflight < packet_burst) && (nextSend - now <= 0)) {
-	        // we always complete the full burst
+	        while ((inflight < packet_window) && (nextSend - now <= 0)) {
+	            // we always complete the full burst
                 while (inburst < packet_burst) {
                     pragueCC.GetTimeInfo(data_msg.timestamp, data_msg.echoed_timestamp, new_ecn);
                     if (!startSend)
@@ -122,7 +122,7 @@ int main(int argc, char **argv)
                     inburst++;
                     inflight++;
                 }
-	    }
+	        }
             if (startSend != 0) {
                 if (compRecv + packet_size * inburst * 1000000 / pacing_rate <= 0)
                     nextSend = time_tp(startSend + 1);
