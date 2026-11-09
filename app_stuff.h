@@ -185,20 +185,20 @@ struct AppStuff
         if (verbose) {
             if (sender_role) {
                 if (!rt_mode) {
-                    printf("s: time, timestamp, echoed_timestamp, time_diff, seqnr, packet_size,,,,, "
-                           "pacing_rate, packet_window, packet_burst, packet_inflight, packet_inburst, nextSend\n");
-                    printf("NORMAL_ACK_r: time, timestamp, echoed_timestamp, time_diff, seqnr, bytes_received, pkts_received, "
-                           "pkts_CE, pkts_lost, error_L4S,,,,, packet_inflight, packet_inburst, nextSend\n");
+                    printf("s: time, timestamp, echoed_timestamp, time_diff, seqnr, packet_size, "
+                           "pacing_rate, packet_window, packet_burst,,,,,, packet_inflight, packet_inburst, nextSend\n");
+                    printf("NORMAL_ACK_r: time, timestamp, echoed_timestamp, time_diff, seqnr,,,,, bytes_received, pkts_received, "
+                           "pkts_CE, pkts_lost, error_L4S, packet_inflight, packet_inburst, nextSend\n");
                     printf("RFC8888_ACK_r: time, begin_seq, num_reports, time_diff, seqnr, bytes_received, pkts_received, "
-                           "pkts_CE, pkts_lost, error_L4S,,,,, packet_inflight, packet_inburst, nextSend\n");
+                           "pkts_CE, pkts_lost, error_L4S, packet_inflight, packet_inburst, nextSend\n");
                 } else {
-                    printf("s: time, timestamp, echoed_timestamp, time_diff, seqnr, packet_size,,,,, pacing_rate, "
+                    printf("s: time, timestamp, echoed_timestamp, time_diff, seqnr, packet_size, pacing_rate, "
                            "frame_window, frame_size, packet_burst, frame_inflight, frame_sent, packet_inburst, nextSend\n");
                     printf("NORMAL_ACK_r: time, timestamp, echoed_timestamp, time_diff, seqnr, bytes_received, pkts_received, "
-                           "pkts_CE, pkts_lost, error_L4S,,,,, frame_inflight, frame_sending, sent_frame, lost_frame, "
+                           "pkts_CE, pkts_lost, error_L4S, frame_inflight, frame_sending, sent_frame, lost_frame, "
                            "recv_frame, nextSend\n");
                     printf("RFC8888_ACK_r: time, begin_seq, num_reports, time_diff, seqnr, bytes_received, pkts_received, "
-                           "pkts_CE, pkts_lost, error_L4S,,,,, frame_inflight, frame_sending, sent_frame, lost_frame, "
+                           "pkts_CE, pkts_lost, error_L4S, frame_inflight, frame_sending, sent_frame, lost_frame, "
                            "recv_frame, nextSend\n");
                 }
             } else {
@@ -212,9 +212,9 @@ struct AppStuff
                      count_tp pkt_window, count_tp pkt_burst, count_tp pkt_inflight, count_tp pkt_inburst, time_tp nextSend)
     {
         if (verbose) {
-            // "s: time, timestamp, echoed_timestamp, time_diff, seqnr, packet_size,,,,, "
-            // "pacing_rate, packet_window, packet_burst, packet_inflight, packet_inburst, nextSend"
-            printf("s: %d, %d, %d, %d, %d, %s,,,,, %s, %d, %d, %d, %d, %d\n",
+            // "s: time, timestamp, echoed_timestamp, time_diff, seqnr, packet_size, "
+            // "pacing_rate, packet_window, packet_burst,,,,,, packet_inflight, packet_inburst, nextSend"
+            printf("s: %d, %d, %d, %d, %d, %s, %s, %d, %d,,,,,, %d, %d, %d\n",
                    now, timestamp, echoed_timestamp, timestamp - data_tm, seqnr, C_STR(pkt_size),
                    C_STR(pacing_rate), pkt_window, pkt_burst, pkt_inflight, pkt_inburst, nextSend - now);
             data_tm = timestamp;
@@ -226,9 +226,9 @@ struct AppStuff
                           count_tp frm_inflight, count_tp frm_sent, count_tp pkt_inburst, time_tp nextSend)
     {
         if (verbose) {
-            // "s: time, timestamp, echoed_timestamp, time_diff, seqnr, packet_size,,,,, "
+            // "s: time, timestamp, echoed_timestamp, time_diff, seqnr, packet_size, "
             // "pacing_rate, frame_window, frame_size, packet_burst, frame_inflight, frame_sent, packet_inburst, nextSend"
-            printf("s: %d, %d, %d, %d, %d, %s,,,,, %s, %d, %d, %d, %d, %d, %d, %d\n",
+            printf("s: %d, %d, %d, %d, %d, %s, %s, %d, %d, %d, %d, %d, %d, %d\n",
                    now, timestamp, echoed_timestamp, timestamp - data_tm, seqnr, C_STR(pkt_size),
                    C_STR(pacing_rate), frm_window, frm_size, pkt_burst, frm_inflight, frm_sent, pkt_inburst, nextSend - now);
             data_tm = timestamp;
@@ -243,15 +243,15 @@ struct AppStuff
     {
         if (verbose) {
             if (!rt_mode) {
-                // "r: time, timestamp, echoed_timestamp, time_diff, seqnr, bytes_received, pkts_received, pkts_CE, "
-                // "pkts_lost, error_L4S,,,,, packet_inflight, packet_inburst, nextSend"
-                printf("NORMAL_ACK_r: %d, %d, %d, %d, %d, %s, %d, %d, %d, %d,,,,, %d, %d, %d\n",
+                // "NORMAL_ACK_r: time, timestamp, echoed_timestamp, time_diff, seqnr,,,,, bytes_received, pkts_received, "
+                // "pkts_CE, pkts_lost, error_L4S, packet_inflight, packet_inburst, nextSend"
+                printf("NORMAL_ACK_r: %d, %d, %d, %d, %d,,,,, %s, %d, %d, %d, %d, %d, %d, %d\n",
                        now, timestamp, echoed_timestamp, timestamp - ack_tm, seqnr, C_STR(bytes_received), pkts_received,
                        pkts_CE, pkts_lost, error_L4S, pkt_inflight, pkt_inburst, nextSend - now);
             } else {
                 // "r: time, timestamp, echoed_timestamp, time_diff, seqnr, bytes_received, pkts_received, pkts_CE, "
-                // "pkts_lost, error_L4S,,,,, frame_inflight, frame_sending, sent_frame, lost_frame, recv_frame, nextSend"
-                printf("NORMAL_ACK_r: %d, %d, %d, %d, %d, %s, %d, %d, %d, %d,,,,, %d, %d, %d, %d, %d, %d\n",
+                // "pkts_lost, error_L4S, frame_inflight, frame_sending, sent_frame, lost_frame, recv_frame, nextSend"
+                printf("NORMAL_ACK_r: %d, %d, %d, %d, %d, %s, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d\n",
                         now, timestamp, echoed_timestamp, timestamp - ack_tm, seqnr, C_STR(bytes_received), pkts_received,
                         pkts_CE, pkts_lost, error_L4S, frm_inflight, frm_sending, sent_frm, lost_frm, recv_frm, nextSend - now);
             }
@@ -276,15 +276,15 @@ struct AppStuff
         if (verbose) {
             if (!rt_mode) {
                 // "r: time, begin_seq, num_reports, time_diff, seqnr, bytes_received, pkts_received, pkts_CE, pkts_lost, "
-                // "error_L4S,,,,, packet_inflight, packet_inburst, nextSend"
-                printf("RFC8888_ACK_r: %d, %d, %d, %d, %d, %s, %d, %d, %d, %d,,,,, %d, %d, %d\n",
+                // "error_L4S, packet_inflight, packet_inburst, nextSend"
+                printf("RFC8888_ACK_r: %d, %d, %d, %d, %d, %s, %d, %d, %d, %d, %d, %d, %d\n",
                        now, begin_seq, num_reports, now - ack_tm, seqnr, C_STR(bytes_received), pkts_received, pkts_CE, pkts_lost,
                        error_L4S, pkt_inflight, pkt_inburst, nextSend - now);
                 ack_tm = now;
             } else {
                 // "r: time, begin_seq, num_reports, time_diff, seqnr, bytes_received, pkts_received, pkts_CE, pkts_lost, "
-                // "error_L4S,,,,, frame_inflight, frame_sending, sent_frame, lost_frame, recv_frame, nextSend"
-                printf("RFC8888_ACK_r: %d, %d, %d, %d, %d, %s, %d, %d, %d, %d,,,,, %d, %d, %d, %d, %d, %d\n",
+                // "error_L4S, frame_inflight, frame_sending, sent_frame, lost_frame, recv_frame, nextSend"
+                printf("RFC8888_ACK_r: %d, %d, %d, %d, %d, %s, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d\n",
                        now, begin_seq, num_reports, now - ack_tm, seqnr, C_STR(bytes_received), pkts_received, pkts_CE, pkts_lost,
                        error_L4S, frm_inflight, frm_sending, sent_frm, lost_frm, recv_frm, nextSend - now);
             }
