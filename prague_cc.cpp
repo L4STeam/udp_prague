@@ -374,19 +374,26 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
         m_cc_state = cs_cong_avoid;                // set the loss state to avoid multiple reductions per RTT
     }
 
-    // Reduce the window if the CE count is increased, and if not in-loss and not in-cwr
-    if ((m_cc_state == cs_cong_avoid) && (m_packets_CE - packets_CE < 0)) {
+    // React to new CE marks once per (virtual) RTT: not in-loss, not in-cwr.
+    // A CE mark also ends startup, as loss does - an L4S bottleneck marks at
+    // a shallow queue, so doubling past it would only build a queue until
+    // it drops.
+    if ((m_packets_CE - packets_CE < 0) &&
+        ((m_cc_state == cs_cong_avoid) || (m_cc_state == cs_startup))) {
         m_rtts_to_growth = (m_pacing_rate >> RATE_SHIFT) + MIN_STEP; // first reset the growth waiting time
 
-        if (m_cca_mode == cca_prague_win) {
-            m_fractional_window -= m_fractional_window * m_alpha >> (PROB_SHIFT + 1);   // reduce the window by a factor alpha/2
-        } else {
-            m_pacing_rate -= m_pacing_rate * m_alpha >> (PROB_SHIFT + 1);   // reduce the rate by a factor alpha/2
-        }
+        // Reduce by a factor alpha/2. The window is in µB, so window * alpha
+        // (alpha up to 2^20) overflows 64 bits once the window passes ~17.6 MB
+        // (e.g. 1 Gbps at 140 ms RTT): take the 128-bit product instead.
+        // The rate can't overflow (PRAGUE_MAXRATE * 2^20 < 2^54).
+        if (m_cca_mode == cca_prague_win)
+            m_fractional_window -= mul_64_64_shift(m_fractional_window, m_alpha, PROB_SHIFT + 1);
+        else
+            m_pacing_rate -= (m_pacing_rate * m_alpha) >> (PROB_SHIFT + 1);
 
-        m_cc_state = cs_in_cwr;                  // set the loss state to avoid multiple reductions per RTT
-        m_cwr_packets_sent = packets_sent;       // set when to end in_loss state
-        m_cwr_ts = ts;                           // set the cwr timestampt to check if a virtRtt is passed
+        m_cc_state = cs_in_cwr;                  // avoid multiple reductions per RTT
+        m_cwr_packets_sent = packets_sent;       // set when to end in_cwr state
+        m_cwr_ts = ts;                           // set the cwr timestamp to check if a virtual RTT has passed
     }
 
     // Updating dependant parameters
