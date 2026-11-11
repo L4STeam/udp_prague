@@ -6,7 +6,10 @@
 //
 
 #include <chrono>
+#include <iostream>
+#include <limits>
 #include <string>
+#include <vector>
 #include "prague_cc.h"
 #include "json_writer.h"
 
@@ -17,10 +20,12 @@
 #define FRAME_PER_SECOND 60
 #define FRAME_DURATION 10000
 #define PORT 8080
-
 // app related stuff collected in this object to avoid obfuscation of the main Prague loop
 struct AppStuff
 {
+    std::vector<PragueState> state_log;
+    size_t state_dump_limit;
+
     bool sender_role;
     // Argument parser
     bool verbose;
@@ -51,6 +56,7 @@ struct AppStuff
     bool rt_mode;           // Frame-based sender
     fps_tp rt_fps;          // Frame-based FPS
     uint32_t rt_frameduration;  // Frame-based frame duration
+    bool startup;            // Start congestion control in cs_startup before cs_cong_avoid
 
     void ExitIf(bool stop, const char* reason)
     {
@@ -77,12 +83,13 @@ struct AppStuff
     }
 
     AppStuff(bool sender, int argc, char **argv):
+        state_dump_limit(0),
         sender_role(sender), verbose(false), quiet(false), rcv_addr("0.0.0.0"), rcv_port(PORT), connect(false),
         json_output(false), max_pkt(PRAGUE_INITMTU), max_rate(PRAGUE_MAXRATE), data_tm(1), ack_tm(1),
         rept_tm(REPT_PERIOD), rept_int(REPT_PERIOD), rept_name(""),
         acc_bytes_sent(0), acc_bytes_rcvd(0), acc_rtts(0), count_rtts(0), prev_pkts(0), prev_marks(0), prev_losts(0),
         rfc8888_ack(false), rfc8888_ackperiod(RFC8888_ACKPERIOD),
-        rt_mode(false), rt_fps(FRAME_PER_SECOND), rt_frameduration(FRAME_DURATION)
+        rt_mode(false), rt_fps(FRAME_PER_SECOND), rt_frameduration(FRAME_DURATION), startup(true)
     {
         parseArgs(argc, argv);
         printInfo();
@@ -142,6 +149,17 @@ struct AppStuff
                 char *p;
                 rt_frameduration = strtoul(argv[++i], &p, 10);
                 ExitIf(errno != 0 || *p != '\0', "Error during converting RT mode frame duration");
+            } else if (arg == "--no-startup") {
+                startup = false;
+            } else if (arg == "--dump-state" && i + 1 < argc) {
+                char *p;
+                const char *count = argv[++i];
+                errno = 0;
+                unsigned long long parsed_count = strtoull(count, &p, 10);
+                ExitIf(count[0] == '-' || errno != 0 || p == count || *p != '\0' ||
+                       parsed_count > static_cast<unsigned long long>((std::numeric_limits<size_t>::max)()),
+                       "Error during converting state dump count");
+                state_dump_limit = static_cast<size_t>(parsed_count);
             } else {
                 printf("UDP Prague %s usage:\n"
                        "    -a <IP address, def: 0.0.0.0 or 127.0.0.1 if client>\n"
@@ -158,7 +176,9 @@ struct AppStuff
                        "    --rfc8888ackperiod <RFC8888 ACK period, def %s us>\n"
                        "    --rtmode (Real-Time mode)\n"
                        "    --fps <Frame-per-second, def %s fps>\n"
-                       "    --frameduration <Frame duration, def %s us>\n",
+                       "    --frameduration <Frame duration, def %s us>\n"
+                       "    --no-startup (skip the intermediate startup state)\n"
+                       "    --dump-state <count> (dump Prague state of the first count received packets and exit)\n",
                        sender_role ? "sender" : "receiver", C_STR(PORT),
                        C_STR(PRAGUE_MAXRATE / 125), C_STR(PRAGUE_INITMTU), C_STR(REPT_PERIOD),
                        sender_role ? "sender" : "receiver",
@@ -174,6 +194,51 @@ struct AppStuff
             rept_name = sender_role ? "sender" : "receiver";
         if (rt_mode && rt_fps * rt_frameduration > 1000000)
             rt_frameduration = 1000000 / rt_fps;
+        state_log.reserve(state_dump_limit);
+    }
+    void LogState(PragueCC &pragueCC)
+    {
+        if (state_dump_limit == 0)
+            return;
+
+        const PragueState *state = pragueCC.GetStatePtr();
+        state_log.push_back(*state);
+        if (state_log.size() == state_dump_limit)
+        {
+            std::cout << "m_start_ref,m_startup_enabled,m_init_rate,m_init_window,m_min_rate,m_max_rate,"
+                         "m_max_packet_size,m_frame_interval,m_frame_budget,m_ts_remote,m_rtt,m_srtt,m_vrtt,"
+                         "m_r_prev_ts,m_r_packets_received,m_r_packets_CE,m_r_packets_lost,m_r_error_L4S,"
+                         "m_cc_ts,m_packets_received,m_packets_CE,m_packets_lost,m_packets_sent,m_error_L4S,"
+                         "m_alpha_ts,m_alpha_packets_received,m_alpha_packets_CE,m_alpha_packets_lost,"
+                         "m_alpha_packets_sent,m_loss_ts,m_loss_cca,m_lost_window,m_lost_rate,"
+                         "m_lost_rtts_to_growth,m_loss_packets_lost,m_loss_packets_sent,m_cwr_ts,"
+                         "m_cwr_packets_sent,m_cc_state,m_cca_mode,m_rtts_to_growth,m_alpha,m_pacing_rate,"
+                         "m_fractional_window,m_packet_burst,m_packet_size,m_packet_window\n";
+            for (size_t i = 0; i < state_log.size(); ++i)
+            {
+                const PragueState &s = state_log[i];
+                std::cout << s.m_start_ref << ',' << s.m_startup_enabled << ','
+                          << s.m_init_rate << ',' << s.m_init_window << ',' << s.m_min_rate << ','
+                          << s.m_max_rate << ',' << s.m_max_packet_size << ',' << s.m_frame_interval << ','
+                          << s.m_frame_budget << ',' << s.m_ts_remote << ',' << s.m_rtt << ','
+                          << s.m_srtt << ',' << s.m_vrtt << ',' << s.m_r_prev_ts << ','
+                          << s.m_r_packets_received << ',' << s.m_r_packets_CE << ','
+                          << s.m_r_packets_lost << ',' << s.m_r_error_L4S << ',' << s.m_cc_ts << ','
+                          << s.m_packets_received << ',' << s.m_packets_CE << ',' << s.m_packets_lost << ','
+                          << s.m_packets_sent << ',' << s.m_error_L4S << ',' << s.m_alpha_ts << ','
+                          << s.m_alpha_packets_received << ',' << s.m_alpha_packets_CE << ','
+                          << s.m_alpha_packets_lost << ',' << s.m_alpha_packets_sent << ','
+                          << s.m_loss_ts << ',' << s.m_loss_cca << ',' << s.m_lost_window << ','
+                          << s.m_lost_rate << ',' << s.m_lost_rtts_to_growth << ',' << s.m_loss_packets_lost
+                          << ',' << s.m_loss_packets_sent << ',' << s.m_cwr_ts << ','
+                          << s.m_cwr_packets_sent << ',' << s.m_cc_state << ',' << s.m_cca_mode << ','
+                          << s.m_rtts_to_growth << ',' << s.m_alpha << ',' << s.m_pacing_rate << ','
+                          << s.m_fractional_window << ',' << s.m_packet_burst << ',' << s.m_packet_size
+                          << ',' << s.m_packet_window << '\n';
+            }
+            std::cout.flush();
+            exit(0);
+        }
     }
     void printInfo()
     {

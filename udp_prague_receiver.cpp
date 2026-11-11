@@ -88,6 +88,7 @@ int main(int argc, char **argv)
             }
 
             // Pass the relevant data to the PragueCC object:
+            app.LogState(pragueCC);
             pragueCC.PacketReceived(data_msg.timestamp, data_msg.echoed_timestamp);
             pragueCC.DataReceivedSequence(rcv_ecn, data_msg.seq_nr);
         }

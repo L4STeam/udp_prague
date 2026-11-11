@@ -14,7 +14,7 @@ enum ecn_tp: uint8_t {ecn_not_ect=0, ecn_l4s_id=1, ecn_ect0=2, ecn_ce=3};
                              // 2 bits in the IP header, only values 0-3 are valid, and 1 (0b01) and 3 (0b11) are L4S valid
 typedef uint8_t fps_tp;      // frames per second: any value from 1 till 255 can be used, 0 must be used for bulk
 typedef int64_t prob_tp;
-enum cs_tp {cs_init, cs_cong_avoid, cs_in_loss, cs_in_cwr};
+enum cs_tp {cs_init, cs_startup, cs_cong_avoid, cs_in_loss, cs_in_cwr};
 enum cca_tp {cca_prague_win, cca_prague_rate};  // which CC algorithm is active
 
 static const count_tp PRAGUE_INITWIN  = 10;          // Prague initial window size
@@ -27,6 +27,7 @@ static const rate_tp  PRAGUE_MAXRATE  = 12500000000; // Prague maximum rate 1250
 struct PragueState {
     time_tp   m_start_ref;  // used to have a start time of 0
 // parameters
+    bool      m_startup_enabled;
     rate_tp   m_init_rate;
     window_tp m_init_window;
     rate_tp   m_min_rate;
@@ -84,6 +85,7 @@ struct PragueState {
 class PragueCC: private PragueState {
 public:
     PragueCC(
+        bool startup_enabled = true,
         size_tp max_packet_size = PRAGUE_INITMTU, // use MTU detection, or a low enough value. Can be updated on the fly (todo)
         fps_tp fps = 0,                           // only used for video; frames per second, 0 must be used for bulk transfer
         time_tp frame_budget = 0,                 // only used for video; over what time [µs] you want to pace the frame (max 1000000/fps [µs])

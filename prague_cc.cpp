@@ -106,6 +106,7 @@ count_tp PragueCC::get_alpha_shift()
 }
 
 PragueCC::PragueCC(
+    bool startup_enabled,
     size_tp max_packet_size,
     fps_tp fps,
     time_tp frame_budget,
@@ -117,6 +118,7 @@ PragueCC::PragueCC(
     m_start_ref = 0;
     time_tp ts_now = Now();
 // parameters
+    m_startup_enabled = startup_enabled;
     m_init_rate = init_rate;
     m_init_window = window_tp(init_window) * max_packet_size * 1000000;
     m_min_rate = min_rate;
@@ -239,7 +241,7 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     if (m_cc_state == cs_init)
     {
         m_fractional_window = srtt * m_pacing_rate;
-        m_cc_state = cs_cong_avoid;
+        m_cc_state = m_startup_enabled ? cs_startup : cs_cong_avoid;
     }
 
     // select the rate- or window-based update, but keep the rate stable on switching
@@ -326,7 +328,15 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     
     // Increase the window if not in-loss for all the non-CE ACKs
     count_tp acks = (packets_received - m_packets_received) - (packets_CE - m_packets_CE);
-    if ((m_cc_state != cs_in_loss) && (acks > 0))
+    if ((m_cc_state == cs_startup) && (acks > 0))
+    {
+        if(m_cca_mode == cca_prague_win) {
+            m_fractional_window += acks * m_packet_size;  // increase the window by the number of non-CE ACKs * packet size
+        } else {
+            m_pacing_rate += acks * m_packet_size * 1000000 / m_srtt;  // increase the rate by the number of non-CE ACKs * packet size / smoothed RTT
+        }
+    }
+    else if ((m_cc_state != cs_in_loss) && (acks > 0))
     {
         size_tp increment = mul_64_64_shift(m_pacing_rate, QUEUE_GROWTH) / 1000000;  // incr = B/s * 1ms
         if ((increment < m_max_packet_size) || m_rtts_to_growth)     // increment with 1ms queue delay if no more rtts to wait for growth and if > than 1 max packet

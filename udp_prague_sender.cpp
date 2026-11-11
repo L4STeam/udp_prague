@@ -45,7 +45,8 @@ int main(int argc, char **argv)
     bool err_L4S = false;       // L4S error flag for RFC8888 feedback
 
     // create a PragueCC object. Using default parameters for the Prague CC in line with TCP_Prague
-    PragueCC pragueCC(app.max_pkt,
+    PragueCC pragueCC(app.startup,
+                      app.max_pkt,
                       app.rt_mode ? app.rt_fps : 0,
                       app.rt_mode ? app.rt_frameduration : 0,
                       PRAGUE_INITRATE,
@@ -218,6 +219,7 @@ int main(int argc, char **argv)
                 ack_msg.get_frame_stat(pkts_stat, pkts_lost, is_sending, frame_nr, recv_frame, lost_frame, frame_idx, frame_pktsent, frame_pktlost);
                 frame_inflight = is_sending + sent_frame - recv_frame - lost_frame;
             }
+            app.LogState(pragueCC);
             pragueCC.PacketReceived(ack_msg.timestamp, ack_msg.echoed_timestamp);
             pragueCC.ACKReceived(ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, seqnr, ack_msg.error_L4S, inflight);
             if (!app.rt_mode) {
@@ -241,6 +243,7 @@ int main(int argc, char **argv)
                 frame_inflight = is_sending + sent_frame - recv_frame - lost_frame;
             }
             if (num_rtt) {
+                app.LogState(pragueCC);
                 pragueCC.RFC8888Received(num_rtt, pkts_rtt);
                 pragueCC.ACKReceived(pkts_received, pkts_CE, pkts_lost, seqnr, err_L4S, inflight);
                 if (!app.rt_mode)
