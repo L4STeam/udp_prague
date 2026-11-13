@@ -61,8 +61,9 @@ uint64_t div_64_64_round(uint64_t a, uint64_t divisor)
 
 // Prague consts and methods
 const count_tp MIN_STEP = 7;               // Minimally wait for 7 RTTs to try to increase faster
-const rate_tp RATE_SHIFT = 21;             // per 1920kB/s = 15360kbps pacing rate wait one RTT longer, but leave a bit more slack: 2097152 B/s is >>21
-const time_tp QUEUE_GROWTH = 1000;         // target a queue growth of 1000us = 1ms after waiting pacing_rate >> RATE_SHIFT + MIN_STEP
+const rate_tp RATE_SHIFT1 = 21;            // per 1920kB/s = 15360kbps pacing rate wait one RTT longer
+const rate_tp RATE_SHIFT2 = 23;            // but leave a bit more slack: >>21 + >>23 is 1678kB/s, resulting in about 14% more rounds
+const time_tp QUEUE_GROWTH = 1000;         // target a queue growth of 1000us = 1ms after waiting pacing_rate >> RATE_SHIFTs + MIN_STEP
 const time_tp BURST_TIME = 250;            // 250us
 const time_tp REF_RTT = 25000;             // 25ms
 const uint8_t PROB_SHIFT = 20;             // enough as max value that can control up to 100Gbps with r [Mbps] = 1/p - 1, p = 1/(r + 1) = 1/100001
@@ -182,7 +183,7 @@ PragueCC::PragueCC(
     m_cubic_epoch = 0;
     m_cubic_wmax = 0;
     m_cubic_last_max = 0;
-    m_rtts_to_growth= (init_rate >> RATE_SHIFT) + MIN_STEP;   // virtual rtts before going into growth mode
+    m_rtts_to_growth= (init_rate >> RATE_SHIFT1) + (init_rate >> RATE_SHIFT2) + MIN_STEP;   // virtual rtts before going into growth mode
     m_alpha = 0;
     m_pacing_rate = init_rate;
     m_fractional_window = m_init_window;
@@ -445,7 +446,7 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     // it drops.
     if ((m_packets_CE - packets_CE < 0) &&
         ((m_cc_state == cs_cong_avoid) || (m_cc_state == cs_startup))) {
-        m_rtts_to_growth = (m_pacing_rate >> RATE_SHIFT) + MIN_STEP; // first reset the growth waiting time
+        m_rtts_to_growth = (m_pacing_rate >> RATE_SHIFT1) + (m_pacing_rate >> RATE_SHIFT2) + MIN_STEP; // first reset the growth waiting time
 
         // Reduce by a factor alpha/2. The window is in µB, so window * alpha
         // (alpha up to 2^20) overflows 64 bits once the window passes ~17.6 MB
@@ -576,7 +577,7 @@ void PragueCC::ResetCCInfo()     // call this when there is a RTO detected
     m_packet_burst = MIN_PKT_BURST;
     m_packet_size = m_max_packet_size;
     m_packet_window = MIN_PKT_WIN;
-    m_rtts_to_growth = (m_pacing_rate >> RATE_SHIFT) + MIN_STEP;   // virtual rtts before going into growth mode
+    m_rtts_to_growth = (m_pacing_rate >> RATE_SHIFT1) + (m_pacing_rate >> RATE_SHIFT2) + MIN_STEP;   // virtual rtts before going into growth mode
     m_lost_rtts_to_growth = 0;
     m_lost_window = 0;
     m_lost_rate = 0;

@@ -177,7 +177,7 @@ struct AppStuff
                        "    --rtmode (Real-Time mode)\n"
                        "    --fps <Frame-per-second, def %s fps>\n"
                        "    --frameduration <Frame duration, def %s us>\n"
-                       "    --no-startup (skip the intermediate startup state)\n"
+                       "    --no-startup (if you don't want a startup overshoot and adapt slowly until marks appear)\n"
                        "    --dump-state <count> (dump Prague state of the first count received packets and exit)\n",
                        sender_role ? "sender" : "receiver", C_STR(PORT),
                        C_STR(PRAGUE_MAXRATE / 125), C_STR(PRAGUE_INITMTU), C_STR(REPT_PERIOD),
