@@ -10,6 +10,9 @@ It currently has been running on Windows, Linux, Apple and FreeBSD but should be
 We try to get to a common stable API (currently at this stage still evolvable), so the CC can further evolve independently and should be easy to get the latest version in your app.
 It can work in 2 modes.
 
+### Loss and ECN response
+The sender uses CUBIC after packet loss: loss reduces the congestion window and pacing rate by the CUBIC factor, and subsequent congestion avoidance follows the CUBIC window curve. When ECN marks are reported, it switches back to Prague's alpha-based reduction and Prague's congestion-avoidance increase. Alpha is maintained continuously, including while CUBIC is active, so Prague can respond using the measured marking fraction as soon as marks occur.
+
 ### Continuous streaming mode (aka UDP-Prague)
 Like TCP, but possible to adapt the source(s) of the data directly (like the CBR of a real-time encoder). A single pacing rate, window and micro-burst size is given that can be used and divided over different in-app streams.
 We also included an example sender and receiver for this below. They run by default as a server. Use the -c option on the one that you want to connect as a client.

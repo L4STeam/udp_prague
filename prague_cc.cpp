@@ -1,4 +1,6 @@
 #include <chrono>
+#include <cmath>
+#include <limits>
 #include "prague_cc.h"
 
 uint64_t mul_64_64_shift(uint64_t left, uint64_t right, uint32_t shift = 0)
@@ -71,6 +73,9 @@ const count_tp MIN_PKT_WIN = 2;            // 2 packets
 const rate_tp MIN_PACKET_RATE = 80;        // 2 packets per 25ms = the minimum packet rate to maintain by reducing the packet sizes
 const uint8_t RATE_OFFSET = 3;             // +3% and -3% for non-RTmode transfer during 1st and 2nd halve vrtt
 const count_tp MIN_FRAME_WIN = 2;          // 2 frames
+const double CUBIC_C = 0.4;
+const double CUBIC_BETA = 0.7;
+const double CUBIC_FAST_CONVERGENCE = (1.0 + CUBIC_BETA) / 2.0;
 
 time_tp PragueCC::Now() // Returns number of µs since first call
 {
@@ -99,8 +104,10 @@ time_tp PragueCC::get_ref_rtt()
 
 count_tp PragueCC::get_alpha_shift()
 {
-    if (m_frame_interval)
-        return (1 << ALPHA_SHIFT) * (REF_RTT) / (m_frame_interval);
+    if (m_frame_interval) {
+        count_tp shift = (1 << ALPHA_SHIFT) * (REF_RTT) / (m_frame_interval);
+        return shift > 0 ? shift : 1;
+    }
     else
         return 1 << ALPHA_SHIFT;
 }
@@ -155,6 +162,12 @@ PragueCC::PragueCC(
     // for loss and recovery calculation
     m_loss_ts = 0;
     m_loss_cca = cca_prague_win;
+    m_loss_cubic_reduction = false;
+    m_loss_cubic_mode = false;
+    m_loss_cubic_epoch_active = false;
+    m_loss_cubic_epoch = 0;
+    m_loss_cubic_wmax = 0;
+    m_loss_cubic_last_max = 0;
     m_lost_window = 0;
     m_lost_rate = 0;
     m_loss_packets_lost = 0;
@@ -166,6 +179,11 @@ PragueCC::PragueCC(
     // state updated for the actual congestion control variables
     m_cc_state = cs_init;
     m_cca_mode = cca_prague_win;
+    m_cubic_mode = false;
+    m_cubic_epoch_active = false;
+    m_cubic_epoch = 0;
+    m_cubic_wmax = 0;
+    m_cubic_last_max = 0;
     m_rtts_to_growth= (init_rate >> RATE_SHIFT) + MIN_STEP;   // virtual rtts before going into growth mode
     m_alpha = 0;
     m_pacing_rate = init_rate;
@@ -265,7 +283,10 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     //if ((packets_received - m_alpha_packets_received + packets_lost - m_alpha_packets_lost > max(2, m_fractional_window / m_packet_size / 1000000))
     //    && (now() - m_prev_cycle > 25000)) {
         // prob_tp prob = (packets_CE - m_alpha_packets_CE) << PROB_SHIFT / (packets_received - m_alpha_packets_received);
-        prob_tp prob = (prob_tp(packets_CE - m_alpha_packets_CE) << PROB_SHIFT) / (packets_received - m_alpha_packets_received);
+        count_tp received = packets_received - m_alpha_packets_received;
+        prob_tp prob = received > 0
+            ? (prob_tp(packets_CE - m_alpha_packets_CE) << PROB_SHIFT) / received
+            : 0;
         m_alpha += ((prob - m_alpha) / get_alpha_shift());
         m_alpha = (m_alpha > MAX_PROB) ? MAX_PROB : m_alpha;
         m_alpha_packets_sent = packets_sent;
@@ -280,7 +301,18 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     // Undo the window reduction if the lost count is again down to the one that caused a reduction (reordered iso loss)
     if ((m_lost_window > 0 || m_lost_rate > 0) && (m_loss_packets_lost - packets_lost >= 0)) {
         m_cca_mode = m_loss_cca;                   // restore the cca mode before recovery
-        if (m_cca_mode == cca_prague_rate) {
+        if (m_loss_cubic_reduction) {
+            m_fractional_window += m_lost_window;
+            m_pacing_rate += m_lost_rate;
+            m_lost_window = 0;
+            m_lost_rate = 0;
+            m_cubic_mode = m_loss_cubic_mode;
+            m_cubic_epoch_active = m_loss_cubic_epoch_active;
+            m_cubic_epoch = m_loss_cubic_epoch;
+            m_cubic_wmax = m_loss_cubic_wmax;
+            m_cubic_last_max = m_loss_cubic_last_max;
+            m_loss_cubic_reduction = false;
+        } else if (m_cca_mode == cca_prague_rate) {
             m_pacing_rate += m_lost_rate;          // add the reduction to the rate again
             m_lost_rate = 0;                       // can be done only once
         } else {
@@ -302,6 +334,13 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
 
     // Reduce the window if the loss count is increased
     if ((m_cc_state != cs_in_loss) && (m_packets_lost - packets_lost < 0)) {
+        m_loss_cubic_reduction = true;
+        m_loss_cubic_mode = m_cubic_mode;
+        m_loss_cubic_epoch_active = m_cubic_epoch_active;
+        m_loss_cubic_epoch = m_cubic_epoch;
+        m_loss_cubic_wmax = m_cubic_wmax;
+        m_loss_cubic_last_max = m_cubic_last_max;
+
         // vRTTs needed to get to the time where a REF_RTT flow would hit the same bottleneck again. after that do 1ms growth
         count_tp rtts_to_growth = m_pacing_rate / 2 / m_max_packet_size * REF_RTT / m_vrtt * REF_RTT / 1000000; // rescale twice
         // first reset the growth waiting time, but prepare to undo
@@ -311,13 +350,21 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
             m_lost_rtts_to_growth = rtts_to_growth;  // no need to undo more than what will be used next
         m_rtts_to_growth = rtts_to_growth;        // also equivalent to m_rtts_to_growth += m_lost_rtts_to_growth; so can be undone with -=
 
-        if (m_cca_mode == cca_prague_win) {
-            m_lost_window = m_fractional_window / 2;  // remember the reduction
-            m_fractional_window -= m_lost_window;     // reduce the window
-        } else { // (m_cca_mode == cca_prague_rate)
-            m_lost_rate = m_pacing_rate / 2;          // remember the reduction
-            m_pacing_rate -= m_lost_rate;             // reduce the rate
-        }
+        window_tp old_window = m_fractional_window;
+        rate_tp old_rate = m_pacing_rate;
+        if (m_cubic_last_max && old_window < m_cubic_last_max)
+            m_cubic_wmax = window_tp(old_window * CUBIC_FAST_CONVERGENCE);
+        else
+            m_cubic_wmax = old_window;
+        m_cubic_last_max = m_cubic_wmax;
+        m_cubic_epoch = ts;
+        m_cubic_epoch_active = true;
+        m_cubic_mode = true;
+
+        m_fractional_window = old_window / 10 * 7 + old_window % 10 * 7 / 10;
+        m_pacing_rate = old_rate / 10 * 7 + old_rate % 10 * 7 / 10;
+        m_lost_window = old_window - m_fractional_window;
+        m_lost_rate = old_rate - m_pacing_rate;
 
         m_cc_state = cs_in_loss;                  // set the loss state to avoid multiple reductions per RTT
         m_loss_cca = m_cca_mode;
@@ -328,44 +375,83 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     
     // Increase the window if not in-loss for all the non-CE ACKs
     count_tp acks = (packets_received - m_packets_received) - (packets_CE - m_packets_CE);
+    if (packets_CE - m_packets_CE > 0) {
+        m_cubic_mode = false;
+        m_cubic_epoch_active = false;
+    }
+
     if ((m_cc_state == cs_startup) && (acks > 0))
     {
-        if(m_cca_mode == cca_prague_win) {
-            m_fractional_window += acks * m_packet_size;  // increase the window by the number of non-CE ACKs * packet size
+        if (m_cubic_mode) {
+            m_fractional_window += (window_tp) acks * m_packet_size * 1000000;  // µB, as above
+            m_pacing_rate = m_fractional_window / srtt;
+        } else if(m_cca_mode == cca_prague_win) {
+            m_fractional_window += (window_tp) acks * m_packet_size * 1000000;  // increase the window by the number of non-CE ACKs * packet size (window is in µB)
         } else {
             m_pacing_rate += acks * m_packet_size * 1000000 / m_srtt;  // increase the rate by the number of non-CE ACKs * packet size / smoothed RTT
         }
     }
     else if ((m_cc_state != cs_in_loss) && (acks > 0))
     {
-        size_tp increment = mul_64_64_shift(m_pacing_rate, QUEUE_GROWTH) / 1000000;  // incr = B/s * 1ms
-        if ((increment < m_max_packet_size) || m_rtts_to_growth)     // increment with 1ms queue delay if no more rtts to wait for growth and if > than 1 max packet
-            increment = m_max_packet_size;
+        if (m_cubic_mode) {
+            if (!m_cubic_epoch_active) {
+                m_cubic_epoch = ts;
+                m_cubic_wmax = m_fractional_window;
+                m_cubic_epoch_active = true;
+            }
 
-        // W[p] = W + acks / W * (srrt/vrtt)², but in the right order to not lose precision
-        // W[µB] = W + acks * mtu² * 1000000² / W * (srrt/vrtt)²
-        // correct order to prevent loss of precision
-        if (m_cca_mode == cca_prague_win) {
-            uint64_t divisor  = mul_64_64_shift(m_vrtt, m_vrtt);     // Use mul_64_64 to implicitely convert to uint64_t
-            uint64_t scaler   = div_64_64_round((uint64_t) srtt * 1000000 * srtt, divisor);
-            //uint64_t scaler   = ((uint64_t) srtt * 1000000 * srtt + (divisor >> 1)) / divisor;
-            uint64_t increase = div_64_64_round(acks * m_packet_size * scaler * 1000000, m_fractional_window);
-            //uint64_t increase = (acks * m_packet_size * scaler * 1000000 + (m_fractional_window >> 1)) / m_fractional_window;
-            uint64_t scaled_increase = mul_64_64_shift(increase, increment);
-            m_fractional_window += scaled_increase;
+            double mss_window = double(m_max_packet_size) * 1000000.0;
+            double wmax = double(m_cubic_wmax) / mss_window;
+            double elapsed = double(ts - m_cubic_epoch) / 1000000.0;
+            if (elapsed < 0)
+                elapsed = 0;
+            double k = std::cbrt(wmax * (1.0 - CUBIC_BETA) / CUBIC_C);
+            double offset = elapsed - k;
+            double cubic_target = CUBIC_C * offset * offset * offset + wmax;
+            double reno_target = wmax * CUBIC_BETA +
+                (3.0 * (1.0 - CUBIC_BETA) / (1.0 + CUBIC_BETA)) *
+                elapsed * 1000000.0 / srtt;
+            double target = cubic_target > reno_target ? cubic_target : reno_target;
+            double target_window = target * mss_window;
+            double max_window = std::nextafter(
+                double(std::numeric_limits<window_tp>::max()), 0.0);
+            if (target_window > max_window)
+                target_window = max_window;
 
-            //m_fractional_window += acks * (uint64_t) m_packet_size * srtt * 1000000 / m_vrtt * (uint64_t) increment * srtt / m_vrtt * 1000000 / m_fractional_window;
+            window_tp cubic_window = window_tp(target_window);
+            if (cubic_window > m_fractional_window)
+                m_fractional_window = cubic_window;
+            m_pacing_rate = m_fractional_window / srtt;
         } else {
-            uint64_t divisor = mul_64_64_shift(m_packet_size, 1000000);
-            uint64_t invscaler = div_64_64_round(mul_64_64_shift(m_pacing_rate, m_vrtt), divisor);
-            //uint64_t invscaler = (mul_64_64_shift(m_pacing_rate, m_vrtt) + (divisor >> 1)) / divisor;
-            uint64_t increase = div_64_64_round(mul_64_64_shift((uint64_t) acks * increment, 1000000), m_vrtt);
-            //uint64_t increase = ((uint64_t) acks * m_packet_size * 1000000 + (m_vrtt >> 1)) / m_vrtt;
-            uint64_t scaled_increase = div_64_64_round(increase, invscaler);
-            //uint64_t scaled_increase = (increase + (invscaler >> 1)) / invscaler;
-            m_pacing_rate += scaled_increase;
+            size_tp increment = mul_64_64_shift(m_pacing_rate, QUEUE_GROWTH) / 1000000;  // incr = B/s * 1ms
+            if ((increment < m_max_packet_size) || m_rtts_to_growth)     // increment with 1ms queue delay if no more rtts to wait for growth and if > than 1 max packet
+                increment = m_max_packet_size;
 
-            //m_pacing_rate += acks * increment * 1000000 / m_vrtt * m_packet_size / m_vrtt * 1000000 / m_pacing_rate;
+            // W[p] = W + acks / W * (srrt/vrtt)², but in the right order to not lose precision
+            // W[µB] = W + acks * mtu² * 1000000² / W * (srrt/vrtt)²
+            // correct order to prevent loss of precision
+            if (m_cca_mode == cca_prague_win) {
+                uint64_t divisor  = mul_64_64_shift(m_vrtt, m_vrtt);     // Use mul_64_64 to implicitely convert to uint64_t
+                uint64_t scaler   = div_64_64_round((uint64_t) srtt * 1000000 * srtt, divisor);
+                //uint64_t scaler   = ((uint64_t) srtt * 1000000 * srtt + (divisor >> 1)) / divisor;
+                uint64_t increase = div_64_64_round(acks * m_packet_size * scaler * 1000000, m_fractional_window);
+                //uint64_t increase = (acks * m_packet_size * scaler * 1000000 + (m_fractional_window >> 1)) / m_fractional_window;
+                uint64_t scaled_increase = mul_64_64_shift(increase, increment);
+                m_fractional_window += scaled_increase;
+
+                //m_fractional_window += acks * (uint64_t) m_packet_size * srtt * 1000000 / m_vrtt * (uint64_t) increment * srtt / m_vrtt * 1000000 / m_fractional_window;
+            } else {
+                uint64_t divisor = mul_64_64_shift(m_packet_size, 1000000);
+                uint64_t invscaler = div_64_64_round(mul_64_64_shift(m_pacing_rate, m_vrtt), divisor);
+                //uint64_t invscaler = (mul_64_64_shift(m_pacing_rate, m_vrtt) + (divisor >> 1)) / divisor;
+                uint64_t increase = div_64_64_round(mul_64_64_shift((uint64_t) acks * increment, 1000000), m_vrtt);
+                //uint64_t increase = ((uint64_t) acks * m_packet_size * 1000000 + (m_vrtt >> 1)) / m_vrtt;
+                uint64_t scaled_increase = div_64_64_round(increase, invscaler);
+                //uint64_t scaled_increase = (increase + (invscaler >> 1)) / invscaler;
+                m_pacing_rate += scaled_increase;
+
+                //m_pacing_rate += acks * increment * 1000000 / m_vrtt * m_packet_size / m_vrtt * 1000000 / m_pacing_rate;
+            }
         }
     }
 
@@ -398,7 +484,7 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
 
     // Updating dependant parameters
     // align and limit pacing rate and fractional window
-    if (m_cca_mode != cca_prague_rate)
+    if (m_cubic_mode || m_cca_mode != cca_prague_rate)
         m_pacing_rate = m_fractional_window / srtt;   // in B/s
     if (m_pacing_rate < m_min_rate)
     {
@@ -410,7 +496,7 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
         m_pacing_rate = m_max_rate;
         m_fractional_window = m_pacing_rate * srtt;   // in uB; make sure it is updated
     }
-    if (m_cca_mode == cca_prague_rate)
+    if (m_cubic_mode || m_cca_mode == cca_prague_rate)
         m_fractional_window = m_pacing_rate * srtt;   // in uB; only update if in rate mode, otherwise loss of precision
     if (m_fractional_window == 0)
         m_fractional_window = 1;
@@ -500,6 +586,11 @@ void PragueCC::ResetCCInfo()     // call this when there is a RTO detected
     m_cc_ts = Now();
     m_cc_state = cs_init;
     m_cca_mode = cca_prague_win;
+    m_cubic_mode = false;
+    m_cubic_epoch_active = false;
+    m_cubic_epoch = 0;
+    m_cubic_wmax = 0;
+    m_cubic_last_max = 0;
     m_alpha_ts = m_cc_ts;
     m_alpha = 0;
     m_pacing_rate = m_init_rate;
@@ -509,6 +600,9 @@ void PragueCC::ResetCCInfo()     // call this when there is a RTO detected
     m_packet_window = MIN_PKT_WIN;
     m_rtts_to_growth = (m_pacing_rate >> RATE_SHIFT) + MIN_STEP;   // virtual rtts before going into growth mode
     m_lost_rtts_to_growth = 0;
+    m_loss_cubic_reduction = false;
+    m_lost_window = 0;
+    m_lost_rate = 0;
 }
 
 void PragueCC::GetTimeInfo(          // when the any-app needs to send a packet

@@ -62,6 +62,12 @@ struct PragueState {
     // for loss and recovery calculation
     time_tp   m_loss_ts;
     cca_tp    m_loss_cca;
+    bool      m_loss_cubic_reduction;
+    bool      m_loss_cubic_mode;
+    bool      m_loss_cubic_epoch_active;
+    time_tp   m_loss_cubic_epoch;
+    window_tp m_loss_cubic_wmax;
+    window_tp m_loss_cubic_last_max;
     window_tp m_lost_window;
     rate_tp   m_lost_rate;
     count_tp  m_lost_rtts_to_growth;
@@ -73,6 +79,11 @@ struct PragueState {
     // state updated for the actual congestion control variables
     cs_tp     m_cc_state;
     cca_tp    m_cca_mode;
+    bool      m_cubic_mode;
+    bool      m_cubic_epoch_active;
+    time_tp   m_cubic_epoch;
+    window_tp m_cubic_wmax;
+    window_tp m_cubic_last_max;
     count_tp  m_rtts_to_growth;   // virtual rtts before going into growth mode
     prob_tp   m_alpha;
     rate_tp   m_pacing_rate;
