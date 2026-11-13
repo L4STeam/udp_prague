@@ -244,8 +244,9 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     bool error_L4S,            // receiver found a bleached/error ECN; stop using L4S_id on the sending packets!
     count_tp &inflight)        // how many packets are in flight after the ACKed
 {
-    // Ignore older or invalid ACKs (these counters can't go down in new ACKs)
-    if ((m_packets_received - packets_received > 0) || (m_packets_CE - packets_CE > 0))
+    // Ignore older or invalid ACKs (these counters can't go down in new ACKs, nor in not yet send packets)
+    if ((m_packets_received - packets_received > 0) || 
+        (packets_sent - packets_received < 0) || (m_packets_CE - packets_CE > 0))
         return false;
 
     // select the rate- or window-based update, but keep the rate stable on switching

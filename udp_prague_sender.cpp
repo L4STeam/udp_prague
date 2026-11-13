@@ -220,8 +220,10 @@ int main(int argc, char **argv)
                 frame_inflight = is_sending + sent_frame - recv_frame - lost_frame;
             }
             app.LogState(pragueCC);
-            pragueCC.PacketReceived(ack_msg.timestamp, ack_msg.echoed_timestamp);
-            pragueCC.ACKReceived(ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, seqnr, ack_msg.error_L4S, inflight);
+            if (seqnr - ack_msg.packets_received - ack_msg.packets_lost >= 0) {
+                pragueCC.PacketReceived(ack_msg.timestamp, ack_msg.echoed_timestamp);
+                pragueCC.ACKReceived(ack_msg.packets_received, ack_msg.packets_CE, ack_msg.packets_lost, seqnr, ack_msg.error_L4S, inflight);
+            }
             if (!app.rt_mode) {
                 pragueCC.GetCCInfo(pacing_rate, packet_window, packet_burst, packet_size);
                 app.LogRecvACK(now, ack_msg.timestamp, ack_msg.echoed_timestamp, seqnr, bytes_received,
