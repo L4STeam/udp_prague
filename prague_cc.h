@@ -61,10 +61,9 @@ struct PragueState {
     count_tp  m_alpha_packets_sent;
     // for loss and recovery calculation
     time_tp   m_loss_ts;
+    cs_tp     m_loss_cc_state;
     cca_tp    m_loss_cca;
-    bool      m_loss_cubic_reduction;
     bool      m_loss_cubic_mode;
-    bool      m_loss_cubic_epoch_active;
     time_tp   m_loss_cubic_epoch;
     window_tp m_loss_cubic_wmax;
     window_tp m_loss_cubic_last_max;
@@ -80,7 +79,6 @@ struct PragueState {
     cs_tp     m_cc_state;
     cca_tp    m_cca_mode;
     bool      m_cubic_mode;
-    bool      m_cubic_epoch_active;
     time_tp   m_cubic_epoch;
     window_tp m_cubic_wmax;
     window_tp m_cubic_last_max;

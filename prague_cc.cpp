@@ -161,10 +161,9 @@ PragueCC::PragueCC(
     m_alpha_packets_sent = 0;
     // for loss and recovery calculation
     m_loss_ts = 0;
+    m_loss_cc_state = cs_init;
     m_loss_cca = cca_prague_win;
-    m_loss_cubic_reduction = false;
     m_loss_cubic_mode = false;
-    m_loss_cubic_epoch_active = false;
     m_loss_cubic_epoch = 0;
     m_loss_cubic_wmax = 0;
     m_loss_cubic_last_max = 0;
@@ -180,7 +179,6 @@ PragueCC::PragueCC(
     m_cc_state = cs_init;
     m_cca_mode = cca_prague_win;
     m_cubic_mode = false;
-    m_cubic_epoch_active = false;
     m_cubic_epoch = 0;
     m_cubic_wmax = 0;
     m_cubic_last_max = 0;
@@ -300,30 +298,22 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     
     // Undo the window reduction if the lost count is again down to the one that caused a reduction (reordered iso loss)
     if ((m_lost_window > 0 || m_lost_rate > 0) && (m_loss_packets_lost - packets_lost >= 0)) {
-        m_cca_mode = m_loss_cca;                   // restore the cca mode before recovery
-        if (m_loss_cubic_reduction) {
-            m_fractional_window += m_lost_window;
-            m_pacing_rate += m_lost_rate;
-            m_lost_window = 0;
-            m_lost_rate = 0;
+        m_cca_mode = m_loss_cca;               // restore the pre-loss Prague mode
+        m_fractional_window += m_lost_window;
+        m_pacing_rate += m_lost_rate;          // add the reduction to the rate again
+        if (m_cubic_mode) {
             m_cubic_mode = m_loss_cubic_mode;
-            m_cubic_epoch_active = m_loss_cubic_epoch_active;
             m_cubic_epoch = m_loss_cubic_epoch;
             m_cubic_wmax = m_loss_cubic_wmax;
             m_cubic_last_max = m_loss_cubic_last_max;
-            m_loss_cubic_reduction = false;
-        } else if (m_cca_mode == cca_prague_rate) {
-            m_pacing_rate += m_lost_rate;          // add the reduction to the rate again
-            m_lost_rate = 0;                       // can be done only once
-        } else {
-            m_fractional_window += m_lost_window;  // add the reduction to the window again
-            m_lost_window = 0;                     // can be done only once
         }
+        m_lost_window = 0;
+        m_lost_rate = 0;
         m_rtts_to_growth -= m_lost_rtts_to_growth; // restore the rtts to growth
         if (m_rtts_to_growth < 0)
             m_rtts_to_growth = 0;
         m_lost_rtts_to_growth = 0;                 // clear all lost growth rtts
-        m_cc_state = cs_cong_avoid;                // restore the loss state
+        m_cc_state = m_loss_cc_state;              // restore the state saved when the loss was detected
     }
     
     // Clear the in_loss state if in_loss and a real and virtual rtt are passed
@@ -334,9 +324,7 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
 
     // Reduce the window if the loss count is increased
     if ((m_cc_state != cs_in_loss) && (m_packets_lost - packets_lost < 0)) {
-        m_loss_cubic_reduction = true;
         m_loss_cubic_mode = m_cubic_mode;
-        m_loss_cubic_epoch_active = m_cubic_epoch_active;
         m_loss_cubic_epoch = m_cubic_epoch;
         m_loss_cubic_wmax = m_cubic_wmax;
         m_loss_cubic_last_max = m_cubic_last_max;
@@ -358,7 +346,6 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
             m_cubic_wmax = old_window;
         m_cubic_last_max = m_cubic_wmax;
         m_cubic_epoch = ts;
-        m_cubic_epoch_active = true;
         m_cubic_mode = true;
 
         m_fractional_window = old_window / 10 * 7 + old_window % 10 * 7 / 10;
@@ -366,6 +353,7 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
         m_lost_window = old_window - m_fractional_window;
         m_lost_rate = old_rate - m_pacing_rate;
 
+        m_loss_cc_state = m_cc_state;             // keep the state to resume slowstart or cwr if relevant
         m_cc_state = cs_in_loss;                  // set the loss state to avoid multiple reductions per RTT
         m_loss_cca = m_cca_mode;
         m_loss_packets_sent = packets_sent;       // set when to end in_loss state
@@ -377,15 +365,11 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     count_tp acks = (packets_received - m_packets_received) - (packets_CE - m_packets_CE);
     if (packets_CE - m_packets_CE > 0) {
         m_cubic_mode = false;
-        m_cubic_epoch_active = false;
     }
 
     if ((m_cc_state == cs_startup) && (acks > 0))
     {
-        if (m_cubic_mode) {
-            m_fractional_window += (window_tp) acks * m_packet_size * 1000000;  // µB, as above
-            m_pacing_rate = m_fractional_window / srtt;
-        } else if(m_cca_mode == cca_prague_win) {
+        if(m_cca_mode == cca_prague_win) {
             m_fractional_window += (window_tp) acks * m_packet_size * 1000000;  // increase the window by the number of non-CE ACKs * packet size (window is in µB)
         } else {
             m_pacing_rate += acks * m_packet_size * 1000000 / m_srtt;  // increase the rate by the number of non-CE ACKs * packet size / smoothed RTT
@@ -394,12 +378,6 @@ bool PragueCC::ACKReceived(    // call this when an ACK is received from peer. R
     else if ((m_cc_state != cs_in_loss) && (acks > 0))
     {
         if (m_cubic_mode) {
-            if (!m_cubic_epoch_active) {
-                m_cubic_epoch = ts;
-                m_cubic_wmax = m_fractional_window;
-                m_cubic_epoch_active = true;
-            }
-
             double mss_window = double(m_max_packet_size) * 1000000.0;
             double wmax = double(m_cubic_wmax) / mss_window;
             double elapsed = double(ts - m_cubic_epoch) / 1000000.0;
@@ -587,7 +565,6 @@ void PragueCC::ResetCCInfo()     // call this when there is a RTO detected
     m_cc_state = cs_init;
     m_cca_mode = cca_prague_win;
     m_cubic_mode = false;
-    m_cubic_epoch_active = false;
     m_cubic_epoch = 0;
     m_cubic_wmax = 0;
     m_cubic_last_max = 0;
@@ -600,9 +577,9 @@ void PragueCC::ResetCCInfo()     // call this when there is a RTO detected
     m_packet_window = MIN_PKT_WIN;
     m_rtts_to_growth = (m_pacing_rate >> RATE_SHIFT) + MIN_STEP;   // virtual rtts before going into growth mode
     m_lost_rtts_to_growth = 0;
-    m_loss_cubic_reduction = false;
     m_lost_window = 0;
     m_lost_rate = 0;
+    m_loss_cc_state = cs_init;
 }
 
 void PragueCC::GetTimeInfo(          // when the any-app needs to send a packet

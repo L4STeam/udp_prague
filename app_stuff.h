@@ -210,11 +210,10 @@ struct AppStuff
                          "m_r_prev_ts,m_r_packets_received,m_r_packets_CE,m_r_packets_lost,m_r_error_L4S,"
                          "m_cc_ts,m_packets_received,m_packets_CE,m_packets_lost,m_packets_sent,m_error_L4S,"
                          "m_alpha_ts,m_alpha_packets_received,m_alpha_packets_CE,m_alpha_packets_lost,"
-                         "m_alpha_packets_sent,m_loss_ts,m_loss_cca,m_loss_cubic_reduction,"
-                         "m_loss_cubic_mode,m_loss_cubic_epoch_active,m_loss_cubic_epoch,"
+                         "m_alpha_packets_sent,m_loss_ts,m_loss_cc_state,m_loss_cca,m_loss_cubic_mode,m_loss_cubic_epoch,"
                          "m_loss_cubic_wmax,m_loss_cubic_last_max,m_lost_window,m_lost_rate,"
                          "m_lost_rtts_to_growth,m_loss_packets_lost,m_loss_packets_sent,m_cwr_ts,"
-                         "m_cwr_packets_sent,m_cc_state,m_cca_mode,m_cubic_mode,m_cubic_epoch_active,"
+                         "m_cwr_packets_sent,m_cc_state,m_cca_mode,m_cubic_mode,"
                          "m_cubic_epoch,m_cubic_wmax,m_cubic_last_max,m_rtts_to_growth,m_alpha,m_pacing_rate,"
                          "m_fractional_window,m_packet_burst,m_packet_size,m_packet_window\n";
             for (size_t i = 0; i < state_log.size(); ++i)
@@ -231,14 +230,14 @@ struct AppStuff
                           << s.m_packets_sent << ',' << s.m_error_L4S << ',' << s.m_alpha_ts << ','
                           << s.m_alpha_packets_received << ',' << s.m_alpha_packets_CE << ','
                           << s.m_alpha_packets_lost << ',' << s.m_alpha_packets_sent << ','
-                          << s.m_loss_ts << ',' << s.m_loss_cca << ',' << s.m_loss_cubic_reduction << ','
-                          << s.m_loss_cubic_mode << ',' << s.m_loss_cubic_epoch_active << ','
+                          << s.m_loss_ts << ',' << s.m_loss_cc_state << ',' << s.m_loss_cca << ','
+                          << s.m_loss_cubic_mode << ','
                           << s.m_loss_cubic_epoch << ',' << s.m_loss_cubic_wmax << ','
                           << s.m_loss_cubic_last_max << ',' << s.m_lost_window << ','
                           << s.m_lost_rate << ',' << s.m_lost_rtts_to_growth << ',' << s.m_loss_packets_lost
                           << ',' << s.m_loss_packets_sent << ',' << s.m_cwr_ts << ','
                           << s.m_cwr_packets_sent << ',' << s.m_cc_state << ',' << s.m_cca_mode << ','
-                          << s.m_cubic_mode << ',' << s.m_cubic_epoch_active << ',' << s.m_cubic_epoch << ','
+                          << s.m_cubic_mode << ',' << s.m_cubic_epoch << ','
                           << s.m_cubic_wmax << ',' << s.m_cubic_last_max << ','
                           << s.m_rtts_to_growth << ',' << s.m_alpha << ',' << s.m_pacing_rate << ','
                           << s.m_fractional_window << ',' << s.m_packet_burst << ',' << s.m_packet_size
