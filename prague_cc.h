@@ -1,7 +1,8 @@
 #ifndef PRAGUE_CC_H
 #define PRAGUE_CC_H
 
-#include <stdint.h>
+#include <cstddef>
+#include <cstdint>
 
 typedef uint64_t size_tp;    // size in Bytes
 typedef uint64_t window_tp;  // fractional window size in µBytes (to match time in µs, for easy Bytes/second rate calculations)
